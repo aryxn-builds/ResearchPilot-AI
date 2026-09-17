@@ -43,7 +43,7 @@ _active_tasks: dict[str, asyncio.Task] = {}
 
 class SessionEventBus:
     """In-memory pub-sub for SSE events."""
-    
+
     def __init__(self) -> None:
         self._queues: dict[str, list[asyncio.Queue]] = {}
 
@@ -174,9 +174,10 @@ class ResearchService:
         """Execute the LangGraph research pipeline for a session."""
         try:
             session = await self.get_session(session_id, user_id)
-            
+
             # Initial state
             state: ResearchState = {
+                "session_id": str(session_id),
                 "research_question": session.question,
                 "research_plan": None,
                 "sources": [],
@@ -184,68 +185,102 @@ class ResearchService:
                 "claims": [],
                 "critic_result": None,
                 "critic_iterations": 0,
-                "report_markdown": None,
+                "report": None,
             }
 
             await self._update_session_status(session_id, "planning")
             await event_bus.publish(str(session_id), "status_update", {"status": "planning"})
-            
+
             # Run LangGraph streaming
             final_state = state
             async for s in research_graph.astream(state, stream_mode="updates"):
                 node_name = list(s.keys())[0]
                 # Merge state manually or let graph do it. `astream` returns partials,
                 # but we can just use it to track progress. We'll get the final state later.
-                
+
                 if node_name == "plan_research":
                     await self._update_session_status(session_id, "researching")
-                    await event_bus.publish(str(session_id), "status_update", {"status": "researching"})
+                    await event_bus.publish(
+                        str(session_id), "status_update", {"status": "researching"}
+                    )
                 elif node_name == "extract_evidence":
                     await self._update_session_status(session_id, "verifying")
-                    await event_bus.publish(str(session_id), "status_update", {"status": "verifying"})
+                    await event_bus.publish(
+                        str(session_id), "status_update", {"status": "verifying"}
+                    )
                 elif node_name == "critic_verify":
                     await self._update_session_status(session_id, "writing")
                     await event_bus.publish(str(session_id), "status_update", {"status": "writing"})
 
             # Graph finished, get final state
             final_state = await research_graph.ainvoke(state)
-            
+
             # Save report to DB
             client = get_service_client()
             report_id = str(uuid.uuid4())
             now = datetime.now(tz=UTC).isoformat()
-            
+
             # Check verified claims
             verified_count = 0
             if final_state.get("critic_result"):
-                verified_count = len([c for c in final_state["critic_result"].claims if c.verification_status == "verified"])
-                
-            await client.table("research_reports").insert({
-                "id": report_id,
-                "session_id": str(session_id),
-                "markdown_content": final_state.get("report_markdown", ""),
-                "created_at": now,
-            }).execute()
+                verified_count = len(
+                    [
+                        c
+                        for c in final_state["critic_result"].claims
+                        if c.verification_status == "verified"
+                    ]
+                )
+
+            report_obj = final_state.get("report")
+            if report_obj:
+                await (
+                    client.table("reports")
+                    .insert(
+                        {
+                            "id": report_id,
+                            "session_id": str(session_id),
+                            "user_id": str(user_id),
+                            "content_markdown": report_obj.markdown,
+                            "citation_map": report_obj.citation_map,
+                            "total_citations": report_obj.total_citations,
+                            "word_count": report_obj.word_count,
+                            "section_count": report_obj.section_count,
+                            "generated_at": now,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
+                    .execute()
+                )
 
             # Update session
-            await client.table("research_sessions").update({
-                "status": "completed",
-                "completed_at": now,
-                "updated_at": now,
-                "iteration_count": final_state.get("critic_iterations", 0),
-                "total_claims": len(final_state.get("claims", [])),
-                "verified_claims": verified_count,
-            }).eq("id", str(session_id)).execute()
+            await (
+                client.table("research_sessions")
+                .update(
+                    {
+                        "status": "completed",
+                        "completed_at": now,
+                        "updated_at": now,
+                        "iteration_count": final_state.get("critic_iterations", 0),
+                        "total_claims": len(final_state.get("claims", [])),
+                        "verified_claims": verified_count,
+                    }
+                )
+                .eq("id", str(session_id))
+                .execute()
+            )
 
             await event_bus.publish(str(session_id), "done", {"status": "completed"})
-            
+
         except asyncio.CancelledError:
             logger.info("Research task cancelled", session_id=str(session_id))
             await event_bus.publish(str(session_id), "error", {"message": "Task cancelled"})
         except Exception as e:
             logger.error("Research graph failed", session_id=str(session_id), error=str(e))
             await self._update_session_status(session_id, "failed", str(e))
-            await event_bus.publish(str(session_id), "error", {"message": "Research pipeline failed"})
+            await event_bus.publish(
+                str(session_id), "error", {"message": "Research pipeline failed"}
+            )
 
     async def get_session(self, session_id: UUID, user_id: UUID) -> ResearchSessionResponse:
         """Fetch a research session, enforcing user ownership.

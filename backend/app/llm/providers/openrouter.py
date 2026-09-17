@@ -12,7 +12,7 @@ def get_openrouter_model() -> ChatOpenAI:
     """
     if not settings.OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY is not configured")
-        
+
     return ChatOpenAI(
         base_url="https://openrouter.ai/api/v1",
         model=settings.OPENROUTER_MODEL,

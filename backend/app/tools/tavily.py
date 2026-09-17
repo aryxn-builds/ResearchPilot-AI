@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import structlog
@@ -13,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 class TavilyTool:
     """Wrapper for the Tavily search API.
-    
+
     Implements graceful degradation: failures return empty lists rather than
     crashing the research session (Rule A-04, Data Flow).
     """
@@ -24,10 +25,10 @@ class TavilyTool:
 
     async def search(self, sub_question: SubQuestion) -> list[Source]:
         """Perform a web search and extract full content.
-        
+
         Args:
             sub_question: The decomposed question to research.
-            
+
         Returns:
             A list of Source objects with extracted content.
         """
@@ -53,12 +54,22 @@ class TavilyTool:
                 if len(content) > max_chars:
                     content = content[:max_chars] + "... [truncated]"
 
+                domain = None
+                try:
+                    parsed_url = urlparse(result.get("url", ""))
+                    domain = parsed_url.netloc
+                except Exception:
+                    pass
+
                 sources.append(
                     Source(
                         id=uuid4(),
+                        task_id=sub_question.id,
                         url=result.get("url", ""),
                         title=result.get("title", ""),
                         content=content,
+                        domain=domain,
+                        published_date=result.get("published_date"),
                     )
                 )
 

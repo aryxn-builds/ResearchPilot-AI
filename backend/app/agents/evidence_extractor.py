@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.llm.router import LLMRouter
 from app.prompts.extractor import EXTRACTOR_SYSTEM_PROMPT
 from app.schemas.agent import Evidence, Source, SubQuestion
-from uuid import uuid4
 
 logger = structlog.get_logger(__name__)
 
 
 class ExtractionResult(BaseModel):
     """Wrapper for the LLM output."""
+
     evidence_items: list[Evidence]
 
 
@@ -23,49 +23,59 @@ class EvidenceExtractor:
     def __init__(self, llm_router: LLMRouter) -> None:
         self.llm_router = llm_router
 
-    async def run(self, sub_question: SubQuestion, source: Source) -> list[Evidence]:
-        """Extract evidence from a single source for a single sub-question.
-        
+    async def run(
+        self, sub_question: SubQuestion, source: Source, callbacks: list | None = None
+    ) -> list[Evidence]:
+        """Extract evidence from a source to answer a sub-question.
+
         Args:
-            sub_question: The question to answer.
-            source: The source to extract from.
-            
+            sub_question: The SubQuestion being researched.
+            source: The gathered source (with content/snippet).
+            callbacks: Optional LangChain callbacks.
+
         Returns:
-            A list of Evidence items.
+            A list of Evidence models.
         """
-        if source.is_flagged:
-            logger.info("Skipping flagged source", source_id=str(source.id))
+        logger.info(
+            "EvidenceExtractor starting", question_id=str(sub_question.id), source_id=str(source.id)
+        )
+
+        if not source.content:
+            logger.warning("Source has no content", source_id=str(source.id))
             return []
 
-        logger.info("EvidenceExtractor starting", source_id=str(source.id), question_id=str(sub_question.id))
-        
         human_content = (
             f"Sub-Question ID: {sub_question.id}\n"
             f"Question: {sub_question.question}\n\n"
             f"Source ID: {source.id}\n"
             f"Source URL: {source.url}\n"
-            f"Source Content:\n{source.content}\n"
+            f"Source Content:\n<raw_source>\n{source.content}\n</raw_source>\n"
         )
-        
+
         messages = [
             SystemMessage(content=EXTRACTOR_SYSTEM_PROMPT),
             HumanMessage(content=human_content),
         ]
-        
+
         try:
-            result = await self.llm_router.generate_structured(messages, ExtractionResult)
-            
-            # Ensure IDs match the inputs, as the LLM might hallucinate them
-            validated_evidence = []
+            result = await self.llm_router.generate_structured(
+                messages, ExtractionResult, callbacks=callbacks
+            )
+
+            # Map back to domain model
+            evidence_list = []
             for item in result.evidence_items:
-                item.id = uuid4()
-                item.sub_question_id = sub_question.id
-                item.source_id = source.id
-                validated_evidence.append(item)
-                
-            logger.info("EvidenceExtractor completed", num_evidence=len(validated_evidence))
-            return validated_evidence
-            
+                evidence = Evidence(
+                    sub_question_id=sub_question.id,
+                    source_id=source.id,
+                    snippet=item.snippet,
+                    relevance_score=item.relevance_score,
+                )
+                evidence_list.append(evidence)
+
+            logger.info("Evidence extraction complete", extracted_count=len(evidence_list))
+            return evidence_list
+
         except Exception as e:
             logger.error("Evidence extraction failed", error=str(e), source_id=str(source.id))
             return []

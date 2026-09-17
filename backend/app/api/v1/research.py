@@ -223,29 +223,32 @@ async def stream_research(
         """Yield SSE-formatted events until the session completes."""
         terminal_states = {"completed", "failed", "cancelled"}
 
-        # Send initial status event
-        yield _sse_event(
-            event="status_update",
-            data={"research_id": str(research_id), "status": session.status},
-        )
-
-        # If already in terminal state, close immediately
-        if session.status in terminal_states:
-            yield _sse_event(
-                event="done", data={"research_id": str(research_id), "status": session.status}
-            )
-            return
-
         q = event_bus.subscribe(str(research_id))
         try:
+            # Re-fetch session status AFTER subscribing to avoid missing terminal events
+            session = await service.get_session(session_id=research_id, user_id=user.id)
+
+            # Send initial status event
+            yield _sse_event(
+                event="status_update",
+                data={"research_id": str(research_id), "status": session.status},
+            )
+
+            # If already in terminal state, close immediately
+            if session.status in terminal_states:
+                yield _sse_event(
+                    event="done", data={"research_id": str(research_id), "status": session.status}
+                )
+                return
+
             while True:
                 try:
                     event_type, data = await asyncio.wait_for(q.get(), timeout=15.0)
                     yield _sse_event(event=event_type, data=data)
-                    
+
                     if event_type in ("done", "error"):
                         break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Heartbeat
                     yield _sse_event(event="heartbeat", data={})
         finally:
@@ -306,18 +309,19 @@ async def get_report(
 
     # Fetch report from DB
     from app.core.database import get_service_client
+
     client = get_service_client()
-    result = await client.table("research_reports").select("*").eq("session_id", str(research_id)).execute()
-    
+    result = await client.table("reports").select("*").eq("session_id", str(research_id)).execute()
+
     if not result.data:
         raise ReportNotFoundError(str(research_id))
-        
+
     row = result.data[0]
     return make_success(
         ReportResponse(
             id=UUID(row["id"]),
             research_id=research_id,
-            markdown_content=row["markdown_content"],
+            markdown_content=row["content_markdown"],
             created_at=row["created_at"],
         )
     )

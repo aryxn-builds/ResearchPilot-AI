@@ -17,15 +17,20 @@ class WriterAgent:
         self.llm_router = llm_router
 
     async def run(
-        self, research_question: str, verified_claims: list[Claim], sources: list[Source]
+        self,
+        research_question: str,
+        verified_claims: list[Claim],
+        sources: list[Source],
+        callbacks: list | None = None,
     ) -> Report:
         """Write the final report based on verified claims and sources.
-        
+
         Args:
             research_question: The original user question.
             verified_claims: Claims that passed the Critic Agent check.
             sources: The original sources for the bibliography.
-            
+            callbacks: Optional LangChain callbacks.
+
         Returns:
             The generated markdown Report.
         """
@@ -36,7 +41,7 @@ class WriterAgent:
             )
 
         logger.info("WriterAgent starting", num_verified_claims=len(verified_claims))
-        
+
         claims_data = [
             {
                 "statement": c.statement,
@@ -44,7 +49,7 @@ class WriterAgent:
             }
             for c in verified_claims
         ]
-        
+
         sources_data = [
             {
                 "id": str(s.id),
@@ -53,19 +58,21 @@ class WriterAgent:
             }
             for s in sources
         ]
-        
+
+        import json
+
         human_content = (
             f"Research Question: {research_question}\n\n"
-            f"Verified Claims:\n{claims_data}\n\n"
-            f"Available Sources:\n{sources_data}"
+            f"Verified Claims:\n<raw_source>\n{json.dumps(claims_data, indent=2)}\n</raw_source>\n\n"
+            f"Available Sources:\n<raw_source>\n{json.dumps(sources_data, indent=2)}\n</raw_source>"
         )
-        
+
         messages = [
             SystemMessage(content=WRITER_SYSTEM_PROMPT),
             HumanMessage(content=human_content),
         ]
-        
-        result = await self.llm_router.generate_structured(messages, Report)
-        
+
+        result = await self.llm_router.generate_structured(messages, Report, callbacks=callbacks)
+
         logger.info("WriterAgent completed")
         return result

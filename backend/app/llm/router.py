@@ -4,7 +4,7 @@ from typing import TypeVar
 
 import structlog
 from langchain_core.messages import BaseMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
 from app.core.exceptions import ProviderExhaustedError
@@ -19,7 +19,7 @@ T = TypeVar("T", bound=BaseModel)
 
 class LLMRouter:
     """Central router for all LLM calls.
-    
+
     Implements Provider Abstraction (Rule A-03) and Fallback Routing.
     """
 
@@ -27,38 +27,50 @@ class LLMRouter:
         self.gemini = get_gemini_model()
         self.groq = get_groq_model()
         self.openrouter = None
-        
+
         if settings.OPENROUTER_API_KEY:
             self.openrouter = get_openrouter_model()
 
-    async def generate_structured(self, messages: list[BaseMessage] | str, schema: type[T]) -> T:
+    async def generate_structured(
+        self, messages: list[BaseMessage] | str, schema: type[T], callbacks: list | None = None
+    ) -> T:
         """Generate a structured response using the provider fallback chain.
-        
+
         Args:
             messages: The prompt or list of messages.
             schema: The Pydantic model class to extract.
-            
+            callbacks: Optional LangChain callbacks.
+
         Returns:
             An instance of the requested Pydantic model.
-            
+
         Raises:
             ProviderExhaustedError: If all providers fail.
+            ValidationError: If the LLM generates a response that fails schema validation.
         """
+        config = {"callbacks": callbacks} if callbacks else None
+
         # 1. Primary: Gemini
         try:
             model = self.gemini.with_structured_output(schema)
-            result = await model.ainvoke(messages)
+            result = await model.ainvoke(messages, config=config)
             if result:
                 return result
+        except ValidationError as e:
+            logger.error("Primary LLM provider (Gemini) returned invalid schema", error=str(e))
+            raise
         except Exception as e:
             logger.warning("Primary LLM provider (Gemini) failed", error=str(e))
 
         # 2. Fallback: Groq
         try:
             model = self.groq.with_structured_output(schema)
-            result = await model.ainvoke(messages)
+            result = await model.ainvoke(messages, config=config)
             if result:
                 return result
+        except ValidationError as e:
+            logger.error("Fallback LLM provider (Groq) returned invalid schema", error=str(e))
+            raise
         except Exception as e:
             logger.warning("Fallback LLM provider (Groq) failed", error=str(e))
 
@@ -66,9 +78,15 @@ class LLMRouter:
         if self.openrouter:
             try:
                 model = self.openrouter.with_structured_output(schema)
-                result = await model.ainvoke(messages)
+                result = await model.ainvoke(messages, config=config)
                 if result:
                     return result
+            except ValidationError as e:
+                logger.error(
+                    "Secondary fallback LLM provider (OpenRouter) returned invalid schema",
+                    error=str(e),
+                )
+                raise
             except Exception as e:
                 logger.warning("Secondary fallback LLM provider (OpenRouter) failed", error=str(e))
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
 
 from app.llm.router import LLMRouter
 from app.prompts.critic import CRITIC_SYSTEM_PROMPT
@@ -17,13 +16,16 @@ class CriticAgent:
     def __init__(self, llm_router: LLMRouter) -> None:
         self.llm_router = llm_router
 
-    async def run(self, claims: list[Claim], evidence_list: list[Evidence]) -> CriticResult:
+    async def run(
+        self, claims: list[Claim], evidence_list: list[Evidence], callbacks: list | None = None
+    ) -> CriticResult:
         """Verify the synthesized claims.
-        
+
         Args:
             claims: The synthesized claims to verify.
             evidence_list: The original extracted evidence items.
-            
+            callbacks: Optional LangChain callbacks.
+
         Returns:
             The CriticResult containing verified/unverified/contradicted statuses.
         """
@@ -32,7 +34,7 @@ class CriticAgent:
             return CriticResult(claims=[])
 
         logger.info("CriticAgent starting", num_claims=len(claims))
-        
+
         # Prepare inputs
         claims_data = [
             {
@@ -42,7 +44,7 @@ class CriticAgent:
             }
             for c in claims
         ]
-        
+
         evidence_data = [
             {
                 "id": str(ev.id),
@@ -50,18 +52,22 @@ class CriticAgent:
             }
             for ev in evidence_list
         ]
-        
+
+        import json
+
         human_content = (
-            f"Evidence Items:\n{evidence_data}\n\n"
-            f"Claims to Verify:\n{claims_data}"
+            f"Evidence Items:\n<raw_source>\n{json.dumps(evidence_data, indent=2)}\n</raw_source>\n\n"
+            f"Claims to Verify:\n{json.dumps(claims_data, indent=2)}"
         )
-        
+
         messages = [
             SystemMessage(content=CRITIC_SYSTEM_PROMPT),
             HumanMessage(content=human_content),
         ]
-        
-        result = await self.llm_router.generate_structured(messages, CriticResult)
-        
+
+        result = await self.llm_router.generate_structured(
+            messages, CriticResult, callbacks=callbacks
+        )
+
         logger.info("CriticAgent completed")
         return result

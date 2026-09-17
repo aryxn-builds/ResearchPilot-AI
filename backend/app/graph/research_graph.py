@@ -30,9 +30,7 @@ builder.add_node("write_report", write_report)
 builder.add_edge(START, "plan_research")
 
 # Fan-out to web_research
-builder.add_conditional_edges(
-    "plan_research", route_to_research, ["web_research", "rank_sources"]
-)
+builder.add_conditional_edges("plan_research", route_to_research, ["web_research", "rank_sources"])
 
 # After all web_research parallel tasks complete, proceed to ranking
 builder.add_edge("web_research", "rank_sources")
