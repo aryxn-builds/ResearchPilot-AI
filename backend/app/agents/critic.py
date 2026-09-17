@@ -69,5 +69,18 @@ class CriticAgent:
             messages, CriticResult, callbacks=callbacks
         )
 
+        original_claims_map = {c.statement: c for c in claims}
+        
+        verified_claims = []
+        for rc in result.claims:
+            if rc.statement in original_claims_map:
+                orig_c = original_claims_map[rc.statement]
+                orig_c.verification_status = rc.verification_status
+                orig_c.critic_notes = rc.critic_notes
+                verified_claims.append(orig_c)
+        
+        # Replace the potentially hallucinated claims with the original instances
+        result.claims = verified_claims
+
         logger.info("CriticAgent completed")
         return result

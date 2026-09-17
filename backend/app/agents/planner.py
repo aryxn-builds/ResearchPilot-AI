@@ -43,5 +43,9 @@ class PlannerAgent:
             messages, ResearchPlan, callbacks=callbacks
         )
 
+        import uuid
+        for sq in plan.sub_questions:
+            sq.id = uuid.uuid4()
+
         logger.info("PlannerAgent completed", num_sub_questions=len(plan.sub_questions))
         return plan

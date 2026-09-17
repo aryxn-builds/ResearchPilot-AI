@@ -65,11 +65,12 @@ class EvidenceExtractor:
             # Map back to domain model
             evidence_list = []
             for item in result.evidence_items:
+                import uuid
                 evidence = Evidence(
+                    id=uuid.uuid4(),
                     sub_question_id=sub_question.id,
                     source_id=source.id,
                     snippet=item.snippet,
-                    relevance_score=item.relevance_score,
                 )
                 evidence_list.append(evidence)
 

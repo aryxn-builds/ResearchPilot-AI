@@ -241,7 +241,7 @@ class ResearchService:
                             "session_id": str(session_id),
                             "user_id": str(user_id),
                             "content_markdown": report_obj.markdown,
-                            "citation_map": report_obj.citation_map,
+                            "citation_map": {c.marker: c.source_id for c in report_obj.citation_map},
                             "total_citations": report_obj.total_citations,
                             "word_count": report_obj.word_count,
                             "section_count": report_obj.section_count,

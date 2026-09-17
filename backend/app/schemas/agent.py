@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SubQuestion(BaseModel):
@@ -70,13 +70,28 @@ class CriticResult(BaseModel):
     claims: list[Claim] = Field(..., description="The claims with updated verification statuses")
 
 
+class CitationEntry(BaseModel):
+    """A citation mapping from marker to source UUID."""
+
+    marker: str = Field(..., description="The citation marker in the text, e.g., '[1]'")
+    source_id: str = Field(..., description="The UUID of the source cited")
+
+
 class Report(BaseModel):
     """The final generated report."""
 
     markdown: str = Field(..., description="The full markdown report content with citations")
-    citation_map: dict[str, str] = Field(
-        ..., description="Map of citation markers (e.g., '[1]') to source UUIDs"
+    citation_map: list[CitationEntry] = Field(
+        default_factory=list, description="List of citations linking markers in the text to source UUIDs"
     )
     total_citations: int = Field(..., description="Count of unique cited sources")
     word_count: int = Field(..., description="Word count of the report")
     section_count: int = Field(..., description="Number of sections in the report")
+
+    @field_validator("citation_map", mode="before")
+    @classmethod
+    def normalize_citation_map(cls, v: Any) -> list[Any]:
+        if isinstance(v, dict):
+            return [CitationEntry(marker=k, source_id=str(val)) for k, val in v.items()]
+        return v or []
+

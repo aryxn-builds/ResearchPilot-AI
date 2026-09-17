@@ -37,7 +37,11 @@ class WriterAgent:
         if not verified_claims:
             logger.warning("No verified claims provided to WriterAgent")
             return Report(
-                markdown="Insufficient verified information was found to answer the research question."
+                markdown="Insufficient verified information was found to answer the research question.",
+                citation_map={},
+                total_citations=0,
+                word_count=0,
+                section_count=0
             )
 
         logger.info("WriterAgent starting", num_verified_claims=len(verified_claims))

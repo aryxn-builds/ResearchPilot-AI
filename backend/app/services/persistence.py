@@ -37,6 +37,7 @@ class PersistenceService:
             # 2. Save the initial tasks
             tasks_data = [
                 {
+                    "id": str(sq.id),
                     "session_id": session_id,
                     "sub_question": sq.question,
                     "research_type": sq.research_type,
@@ -133,7 +134,7 @@ class PersistenceService:
             # Save claim_evidence links
             claim_evidence_data = []
             for c in claims:
-                for eid in c.evidence_ids:
+                for eid in set(c.evidence_ids):
                     claim_evidence_data.append(
                         {
                             "claim_id": str(c.id),

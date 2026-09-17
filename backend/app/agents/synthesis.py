@@ -68,9 +68,8 @@ class SynthesisAgent:
 
         claims = result.claims
         for claim in claims:
-            # Ensure fresh IDs
-            if not claim.id:
-                claim.id = uuid4()
+            # Overwrite any LLM-hallucinated ID with a guaranteed unique UUID
+            claim.id = uuid4()
 
         logger.info("SynthesisAgent completed", num_claims=len(claims))
         return claims
