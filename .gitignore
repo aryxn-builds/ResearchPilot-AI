@@ -1,12 +1,18 @@
+# Environments & Secrets
+.env
+.env.*
+.env*.local
+!.env.example
+!.env.local.example
+!.env.*.example
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
-# Distribution / packaging
+# Python distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -26,13 +32,13 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # Unit test / coverage / linting reports
 htmlcov/
@@ -50,22 +56,22 @@ coverage.xml
 .ruff_cache/
 .mypy_cache/
 
-# Environments
-.env
-.env.*
-!.env.example
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
 # Node / Next.js
 node_modules/
 .next/
 out/
 .vercel
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test artifacts and screenshots
+*_screenshot.png
+error_screenshot.png
+.tempmediaStorage/
 
 # IDE / Editor
 .vscode/
@@ -76,3 +82,4 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+

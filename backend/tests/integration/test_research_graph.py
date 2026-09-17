@@ -39,16 +39,18 @@ def mock_agents():
         patch("app.graph.nodes.writer_agent") as writer,
     ):
         # Setup mock returns
+        sub_q_id = uuid.uuid4()
         planner.run = AsyncMock(
             return_value=ResearchPlan(
                 sub_questions=[
-                    SubQuestion(id=uuid.uuid4(), question="Test sub Q1?", research_type="web")
+                    SubQuestion(id=sub_q_id, question="Test sub Q1?", research_type="web")
                 ]
             )
         )
 
         source1 = Source(
             id=uuid.uuid4(),
+            task_id=sub_q_id,  # Must match sub-question id for task-aware routing
             title="Test Source",
             url="https://test.com",
             content="Test content",

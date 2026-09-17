@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import structlog
 from langchain_core.runnables import RunnableConfig
 
@@ -10,6 +11,7 @@ from app.agents.source_ranker import SourceRanker
 from app.agents.synthesis import SynthesisAgent
 from app.agents.web_research import WebResearchAgent
 from app.agents.writer import WriterAgent
+from app.core.config import settings
 from app.graph.state import ResearchState
 from app.llm.callbacks import AsyncAgentRunCallbackHandler
 from app.llm.router import LLMRouter
@@ -31,6 +33,26 @@ evidence_extractor = EvidenceExtractor(llm_router)
 synthesis_agent = SynthesisAgent(llm_router)
 critic_agent = CriticAgent(llm_router)
 writer_agent = WriterAgent(llm_router)
+
+# Bounded concurrency semaphore for evidence extraction.
+# Prevents fan-out from hammering the LLM provider with too many simultaneous requests,
+# which caused 402 Payment Required errors during the Phase 1D E2E verification.
+# Limit is configurable via EVIDENCE_EXTRACTION_CONCURRENCY in settings.
+_evidence_extraction_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_extraction_semaphore() -> asyncio.Semaphore:
+    """Return the module-level extraction semaphore, creating it lazily.
+
+    Lazy creation ensures it is bound to the correct event loop at runtime.
+    """
+    global _evidence_extraction_semaphore
+    if _evidence_extraction_semaphore is None:
+        _evidence_extraction_semaphore = asyncio.Semaphore(
+            settings.EVIDENCE_EXTRACTION_CONCURRENCY
+        )
+    return _evidence_extraction_semaphore
+
 
 
 async def plan_research(state: ResearchState, config: RunnableConfig) -> dict:
@@ -75,21 +97,20 @@ async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
 
 
 async def extract_evidence(state: dict, config: RunnableConfig) -> dict:
-    """Node: Fan-out evidence extraction for a source and sub-question."""
+    """Node: Fan-out evidence extraction for a source and sub-question.
+
+    Bounded by _get_extraction_semaphore() to prevent provider rate-limit errors
+    caused by too many simultaneous LLM calls during parallel fan-out.
+    """
     # Partial state received from Send API
     sub_question: SubQuestion = state["sub_question"]
     source: Source = state["source"]
-
-    # We must retrieve session_id from the source or sub_question,
-    # but state inside Send API doesn't include the root session_id unless we pass it.
-    # Actually, state in Send API is just the dictionary we yielded.
-    # In research_graph.py, fan_out_web_research passes `{"sub_question": sq, "session_id": state["session_id"]}` ?
-    # Let's check `state["session_id"]` if available, otherwise it might fail.
-    # Wait, earlier I need to check if `session_id` is available in `state`.
     session_id = state.get("session_id", "unknown_session")
     handler = AsyncAgentRunCallbackHandler(session_id, "EvidenceExtractor", persistence_service)
 
-    evidence_items = await evidence_extractor.run(sub_question, source, callbacks=[handler])
+    async with _get_extraction_semaphore():
+        evidence_items = await evidence_extractor.run(sub_question, source, callbacks=[handler])
+
     return {"evidence_items": evidence_items}
 
 

@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     RESEARCH_MAX_SUB_QUESTIONS: int = 8
     RESEARCH_MAX_SOURCE_CONTENT_TOKENS: int = 2000
 
+    # Maximum number of concurrent evidence extraction LLM calls.
+    # 45 fully-parallel calls hammered the provider and caused 402 errors.
+    # Default of 5 balances speed vs provider rate limits on free-tier accounts.
+    EVIDENCE_EXTRACTION_CONCURRENCY: int = Field(default=5, ge=1, le=20)
+
     # ─────────────────────────────────────────────
     # RATE LIMITING
     # ─────────────────────────────────────────────

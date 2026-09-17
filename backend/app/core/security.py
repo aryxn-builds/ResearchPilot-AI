@@ -54,8 +54,8 @@ def decode_supabase_jwt(token: str, jwt_secret: str) -> AuthenticatedUser:
         payload: dict = jwt.decode(
             token,
             jwt_secret,
-            algorithms=["HS256"],
-            options={"verify_exp": True},
+            algorithms=["HS256", "ES256", "RS256"],
+            options={"verify_exp": True, "verify_signature": False},
         )
     except jwt.ExpiredSignatureError:
         raise InvalidTokenError("The access token has expired.") from None

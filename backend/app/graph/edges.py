@@ -31,34 +31,53 @@ def route_to_research(state: ResearchState) -> list[Send] | str:
 
 
 def route_to_extraction(state: ResearchState) -> list[Send] | str:
-    """Conditional edge: Fan-out to parallel evidence extraction tasks."""
+    """Conditional edge: Fan-out to parallel evidence extraction tasks.
+
+    TASK-AWARE ROUTING: Each sub-question only receives the sources that were
+    discovered specifically for it (matched by source.task_id == sub_question.id).
+    This prevents the previous O(S × Q) cross-multiplication where every source
+    was sent to every sub-question regardless of relevance.
+
+    Maximum RESEARCH_MAX_SOURCES_PER_TASK sources are used per sub-question.
+    """
     plan = state.get("research_plan")
     sources = state.get("sources", [])
     sends = []
 
     if plan and sources:
-        # Cap sources per task to prevent context bloat (Rule E-01 / config constraints)
-        top_sources = sources[: settings.RESEARCH_MAX_SOURCES_PER_TASK]
+        # Build a task_id → sources mapping using the task_id already stamped on
+        # each Source at creation time by TavilyTool (source.task_id = sub_question.id).
+        sources_by_task: dict[str, list] = {}
+        for source in sources:
+            if source.task_id and not source.is_flagged:
+                task_key = str(source.task_id)
+                sources_by_task.setdefault(task_key, []).append(source)
 
         for sq in plan.sub_questions:
-            for source in top_sources:
-                if not source.is_flagged:
-                    sends.append(
-                        Send(
-                            "extract_evidence",
-                            {
-                                "sub_question": sq,
-                                "source": source,
-                                "session_id": state.get("session_id"),
-                            },
-                        )
+            task_key = str(sq.id)
+            task_sources = sources_by_task.get(task_key, [])
+
+            # Cap per-task sources to avoid context bloat (config constraint)
+            task_sources = task_sources[: settings.RESEARCH_MAX_SOURCES_PER_TASK]
+
+            for source in task_sources:
+                sends.append(
+                    Send(
+                        "extract_evidence",
+                        {
+                            "sub_question": sq,
+                            "source": source,
+                            "session_id": state.get("session_id"),
+                        },
                     )
+                )
 
     if not sends:
         logger.warning("No extraction tasks generated. Skipping to synthesize_claims.")
         return "synthesize_claims"
 
     return sends
+
 
 
 def verify_claims_loop(state: ResearchState) -> str:
