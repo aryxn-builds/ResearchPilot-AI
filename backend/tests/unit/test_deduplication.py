@@ -13,21 +13,21 @@ async def test_rank_sources_deduplication():
     # Setup state with duplicate URLs
     session_id = str(uuid.uuid4())
     s1 = Source(
-        id=uuid.uuid4(),
+        id=str(uuid.uuid4()),
         url="https://example.com/page1",
         title="Page 1",
         content="Test content 1",
         relevance_score=0.9,
     )
     s2 = Source(
-        id=uuid.uuid4(),
+        id=str(uuid.uuid4()),
         url="https://example.com/page1",  # Duplicate URL
         title="Page 1 duplicate",
         content="Test content 2",
         relevance_score=0.8,
     )
     s3 = Source(
-        id=uuid.uuid4(),
+        id=str(uuid.uuid4()),
         url="https://example.com/page2",
         title="Page 2",
         content="Test content 3",

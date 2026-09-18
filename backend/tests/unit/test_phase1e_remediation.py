@@ -36,12 +36,12 @@ from app.schemas.agent import (
 # ─────────────────────────────────────────────────────────────
 
 def make_sub_question(question: str = "Q?") -> SubQuestion:
-    return SubQuestion(id=uuid.uuid4(), question=question, research_type="web")
+    return SubQuestion(id=str(uuid.uuid4()), question=question, research_type="web")
 
 
 def make_source(task_id: uuid.UUID, url: str = "https://example.com") -> Source:
     return Source(
-        id=uuid.uuid4(),
+        id=str(uuid.uuid4()),
         task_id=task_id,
         url=url,
         title="Test",

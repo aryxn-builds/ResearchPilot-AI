@@ -43,21 +43,38 @@ export default function ActiveResearchPage() {
 
       eventSource = new EventSource(url.toString())
 
-      eventSource.onmessage = (event) => {
+      eventSource.addEventListener('status_update', (event) => {
         if (!isMounted) return
-        
+        try {
+          const data = JSON.parse(event.data)
+          setEvents((prev) => [...prev, { status: data.status, agent: 'System', message: `Status updated to ${data.status}` }])
+        } catch (err) {
+          console.error("Failed to parse SSE status_update data", err)
+        }
+      })
+
+      eventSource.addEventListener('done', (event) => {
+        if (!isMounted) return
         try {
           const data = JSON.parse(event.data)
           if (data.status === 'completed') {
             setIsComplete(true)
             eventSource?.close()
-          } else {
-            setEvents((prev) => [...prev, data])
           }
         } catch (err) {
-          console.error("Failed to parse SSE data", err)
+          console.error("Failed to parse SSE done data", err)
         }
-      }
+      })
+      
+      eventSource.addEventListener('message', (event) => {
+        if (!isMounted) return
+        try {
+          const data = JSON.parse(event.data)
+          setEvents((prev) => [...prev, data])
+        } catch (err) {
+          console.error("Failed to parse SSE message data", err)
+        }
+      })
 
       eventSource.onerror = (err) => {
         console.error("SSE Error:", err)

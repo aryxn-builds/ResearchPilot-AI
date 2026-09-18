@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class SubQuestion(BaseModel):
     """A specific sub-question broken down from the main research question."""
 
-    id: UUID = Field(..., description="Unique identifier for this sub-question")
+    id: str = Field(..., description="Unique identifier for this sub-question")
     question: str = Field(..., description="The specific question to research")
     research_type: Literal["web", "academic", "rag"] = Field(
         ..., description="The type of research required for this question"
@@ -25,8 +25,8 @@ class ResearchPlan(BaseModel):
 class Source(BaseModel):
     """A research source found during a research task."""
 
-    id: UUID = Field(..., description="Unique identifier for this source")
-    task_id: UUID | None = Field(
+    id: str = Field(..., description="Unique identifier for this source")
+    task_id: str | None = Field(
         default=None, description="ID of the task/sub-question this source answers"
     )
     url: str = Field(..., description="The URL or URI of the source")
@@ -44,18 +44,18 @@ class Source(BaseModel):
 class Evidence(BaseModel):
     """A specific snippet of evidence extracted from a source."""
 
-    id: UUID = Field(..., description="Unique identifier for this evidence")
-    sub_question_id: UUID = Field(..., description="ID of the sub-question this answers")
-    source_id: UUID = Field(..., description="ID of the source this evidence came from")
+    id: str = Field(..., description="Unique identifier for this evidence")
+    sub_question_id: str = Field(..., description="ID of the sub-question this answers")
+    source_id: str = Field(..., description="ID of the source this evidence came from")
     snippet: str = Field(..., description="Exact verbatim quote from the source content")
 
 
 class Claim(BaseModel):
     """A factual claim generated from evidence."""
 
-    id: UUID = Field(..., description="Unique identifier for this claim")
+    id: str = Field(..., description="Unique identifier for this claim")
     statement: str = Field(..., description="The specific, falsifiable factual claim")
-    evidence_ids: list[UUID] = Field(
+    evidence_ids: list[str] = Field(
         ..., description="IDs of the Evidence items supporting this claim"
     )
     verification_status: Literal["pending", "verified", "unverified", "contradicted"] = Field(

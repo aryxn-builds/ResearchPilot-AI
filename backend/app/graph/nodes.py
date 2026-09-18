@@ -74,6 +74,8 @@ async def web_research(state: dict, config: RunnableConfig) -> dict:
 async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
     """Node: Score and rank all gathered sources."""
     sources = state.get("sources", [])
+    session_id = state.get("session_id")
+    import uuid
 
     # Deduplicate by URL (preferring the first seen to maintain determinism, or just unique URLs)
     seen_urls = set()
@@ -81,6 +83,8 @@ async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
     for s in sources:
         if s.url not in seen_urls:
             seen_urls.add(s.url)
+            # Reassign deterministic ID to prevent foreign key violations on retries (Rule A-04)
+            s.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{s.url}"))
             unique_sources.append(s)
 
     # Rank them
@@ -90,7 +94,7 @@ async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
     unique_sources.sort(key=lambda s: s.relevance_score, reverse=True)
 
     # Persist the deduplicated/ranked sources
-    await persistence_service.save_sources(state["session_id"], unique_sources)
+    await persistence_service.save_sources(session_id, unique_sources)
 
     # Return using the custom overwrite reducer format
     return {"sources": {"overwrite": True, "items": unique_sources}}
@@ -111,6 +115,11 @@ async def extract_evidence(state: dict, config: RunnableConfig) -> dict:
     async with _get_extraction_semaphore():
         evidence_items = await evidence_extractor.run(sub_question, source, callbacks=[handler])
 
+    import uuid
+    for ev in evidence_items:
+        # Reassign deterministic ID to prevent foreign key violations on retries (Rule A-04)
+        ev.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{source.id}:{ev.snippet[:50]}"))
+
     return {"evidence_items": evidence_items}
 
 
@@ -125,6 +134,12 @@ async def synthesize_claims(state: ResearchState, config: RunnableConfig) -> dic
         state["session_id"], "SynthesisAgent", persistence_service
     )
     claims = await synthesis_agent.run(evidence_items, callbacks=[handler])
+
+    # Validate that all evidence_ids referenced by claims actually exist in evidence_items
+    valid_evidence_ids = {str(e.id) for e in evidence_items}
+    for claim in claims:
+        # Filter out hallucinated IDs to prevent foreign key violations (Rule A-04)
+        claim.evidence_ids = [eid for eid in claim.evidence_ids if str(eid) in valid_evidence_ids]
 
     iteration = state.get("critic_iterations", 0) + 1
     await persistence_service.save_claims(state["session_id"], claims, iteration)

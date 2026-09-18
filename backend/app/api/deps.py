@@ -12,13 +12,16 @@ AGENTS.md Rule AI-09: Services are injected, not instantiated in routes.
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
-from app.core.exceptions import MissingAuthError
-from app.core.security import AuthenticatedUser, decode_supabase_jwt
+from app.core.exceptions import MissingAuthError, InvalidTokenError
+from app.core.security import AuthenticatedUser
+from app.core.database import get_anon_client
+import asyncio
 from app.services.research_service import ResearchService
 from app.services.user_service import UserService
 
@@ -41,7 +44,31 @@ async def get_current_user(
         raise MissingAuthError()
 
     token = credentials.credentials
-    return decode_supabase_jwt(token=token, jwt_secret=settings.SUPABASE_JWT_SECRET)
+    try:
+        res = None
+        last_exc = None
+        for attempt in range(3):
+            try:
+                res = await get_anon_client().auth.get_user(token)
+                break
+            except Exception as exc:
+                last_exc = exc
+                await asyncio.sleep(1)
+        if res is None:
+            raise last_exc
+        user = res.user
+        if not user:
+            raise InvalidTokenError("Token is missing user information.")
+        return AuthenticatedUser(
+            id=UUID(user.id),
+            email=user.email or "",
+            role=user.role or "authenticated"
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        print(f"DEBUG: get_current_user failed: {repr(exc)}")
+        raise InvalidTokenError(f"Token validation failed: {exc}") from exc
 
 
 async def get_sse_user(
@@ -61,7 +88,29 @@ async def get_sse_user(
     if not token:
         raise MissingAuthError("Token query parameter is required for SSE connections.")
 
-    return decode_supabase_jwt(token=token, jwt_secret=settings.SUPABASE_JWT_SECRET)
+    try:
+        res = None
+        last_exc = None
+        for attempt in range(3):
+            try:
+                res = await get_anon_client().auth.get_user(token)
+                break
+            except Exception as exc:
+                last_exc = exc
+                await asyncio.sleep(1)
+        if res is None:
+            raise last_exc
+        user = res.user
+        if not user:
+            raise InvalidTokenError("Token is missing user information.")
+        return AuthenticatedUser(
+            id=UUID(user.id),
+            email=user.email or "",
+            role=user.role or "authenticated"
+        )
+    except Exception as exc:
+        print(f"DEBUG: get_sse_user failed: {exc}")
+        raise InvalidTokenError(f"Token validation failed: {exc}") from exc
 
 
 def get_research_service() -> ResearchService:

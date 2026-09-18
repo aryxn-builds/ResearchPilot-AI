@@ -88,7 +88,7 @@ def test_error_envelope_structure() -> None:
 
     err = ErrorResponse(
         error=ErrorDetail(code="TEST_CODE", message="Test message"),
-        meta=ResponseMeta(request_id=uuid4()),
+        meta=ResponseMeta(request_id=str(uuid4())),
     )
     assert err.error.code == "TEST_CODE"
     assert err.error.message == "Test message"

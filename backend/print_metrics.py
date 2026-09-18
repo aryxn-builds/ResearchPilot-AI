@@ -4,13 +4,25 @@ from supabase import create_client
 
 load_dotenv()
 
-session_id = "72e686a1-681c-427c-b95a-74028642e47e"
-elapsed = 401.0  # Approx from logs (12:30:37 to 12:37:18)
-
 supabase = create_client(
     os.environ["SUPABASE_URL"],
     os.environ["SUPABASE_SERVICE_ROLE_KEY"],
 )
+
+latest_session = supabase.table("research_sessions").select("*").order("created_at", desc=True).limit(1).execute()
+if not latest_session.data:
+    print("No research sessions found.")
+    exit(1)
+
+session_id = latest_session.data[0]["id"]
+print(f"Using latest session ID: {session_id}")
+
+import datetime
+from dateutil.parser import parse
+
+created = parse(latest_session.data[0]["created_at"])
+updated = parse(latest_session.data[0]["updated_at"]) if latest_session.data[0].get("updated_at") else created
+elapsed = (updated - created).total_seconds()
 
 # Collect DB metrics
 runs = supabase.table("agent_runs").select("*").eq("session_id", session_id).execute()

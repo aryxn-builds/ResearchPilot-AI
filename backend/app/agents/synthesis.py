@@ -69,7 +69,7 @@ class SynthesisAgent:
         claims = result.claims
         for claim in claims:
             # Overwrite any LLM-hallucinated ID with a guaranteed unique UUID
-            claim.id = uuid4()
+            claim.id = str(uuid4())
 
         logger.info("SynthesisAgent completed", num_claims=len(claims))
         return claims

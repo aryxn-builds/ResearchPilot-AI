@@ -42,6 +42,7 @@ from app.schemas.research import (
     AsyncJobAccepted,
     DeleteResearchResponse,
     ReportResponse,
+    ReportSummary,
     ResearchListItem,
     ResearchRequest,
     ResearchSessionResponse,
@@ -317,12 +318,40 @@ async def get_report(
         raise ReportNotFoundError(str(research_id))
 
     row = result.data[0]
+    db_citation_map = row.get("citation_map", {})
+    source_ids = list(db_citation_map.values())
+    
+    sources_map = {}
+    if source_ids:
+        # Fetch sources to resolve url and title
+        sources_res = await client.table("sources").select("id, url, title").in_("id", source_ids).execute()
+        for src in sources_res.data or []:
+            sources_map[src["id"]] = src
+            
+    citation_map_api = {}
+    for marker, src_id in db_citation_map.items():
+        src_data = sources_map.get(src_id, {})
+        citation_map_api[marker] = {
+            "source_id": src_id,
+            "url": src_data.get("url", ""),
+            "title": src_data.get("title")
+        }
+
     return make_success(
         ReportResponse(
-            id=UUID(row["id"]),
             research_id=research_id,
-            markdown_content=row["content_markdown"],
-            created_at=row["created_at"],
+            generated_at=row.get("generated_at") or row["created_at"],
+            content_markdown=row["content_markdown"],
+            citation_map=citation_map_api,
+            total_citations=row.get("total_citations", 0),
+            word_count=row.get("word_count"),
+            section_count=row.get("section_count"),
+            summary=ReportSummary(
+                total_claims=session.total_claims or 0,
+                verified_claims=session.verified_claims or 0,
+                excluded_claims=(session.total_claims or 0) - (session.verified_claims or 0),
+                iterations=session.iteration_count or 0,
+            ),
         )
     )
 

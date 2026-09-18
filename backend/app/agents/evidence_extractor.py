@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.llm.router import LLMRouter
 from app.prompts.extractor import EXTRACTOR_SYSTEM_PROMPT
@@ -11,10 +11,15 @@ from app.schemas.agent import Evidence, Source, SubQuestion
 logger = structlog.get_logger(__name__)
 
 
+class LLMEvidenceItem(BaseModel):
+    """A simplified representation of extracted evidence for the LLM to generate."""
+    snippet: str = Field(description="Exact verbatim quote from the source content")
+
+
 class ExtractionResult(BaseModel):
     """Wrapper for the LLM output."""
 
-    evidence_items: list[Evidence]
+    evidence_items: list[LLMEvidenceItem]
 
 
 class EvidenceExtractor:
@@ -67,7 +72,7 @@ class EvidenceExtractor:
             for item in result.evidence_items:
                 import uuid
                 evidence = Evidence(
-                    id=uuid.uuid4(),
+                    id=str(uuid.uuid4()),
                     sub_question_id=sub_question.id,
                     source_id=source.id,
                     snippet=item.snippet,

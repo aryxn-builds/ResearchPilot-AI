@@ -43,14 +43,14 @@ def mock_agents():
         planner.run = AsyncMock(
             return_value=ResearchPlan(
                 sub_questions=[
-                    SubQuestion(id=sub_q_id, question="Test sub Q1?", research_type="web")
+                    SubQuestion(id=str(sub_q_id), question="Test sub Q1?", research_type="web")
                 ]
             )
         )
 
         source1 = Source(
-            id=uuid.uuid4(),
-            task_id=sub_q_id,  # Must match sub-question id for task-aware routing
+            id=str(uuid.uuid4()),
+            task_id=str(sub_q_id),  # Must match sub-question id for task-aware routing
             title="Test Source",
             url="https://test.com",
             content="Test content",
@@ -60,15 +60,15 @@ def mock_agents():
         source_ranker.run = AsyncMock()
 
         evidence1 = Evidence(
-            id=uuid.uuid4(),
+            id=str(uuid.uuid4()),
             source_id=source1.id,
-            sub_question_id=uuid.uuid4(),
+            sub_question_id=str(uuid.uuid4()),
             snippet="Test evidence",
         )
         evidence_extractor.run = AsyncMock(return_value=[evidence1])
 
         claim1 = Claim(
-            id=uuid.uuid4(),
+            id=str(uuid.uuid4()),
             statement="Test claim",
             evidence_ids=[evidence1.id],
             verification_status="pending",
@@ -159,7 +159,7 @@ async def test_research_graph_critic_loop(mock_persistence_service, mock_agents)
         return CriticResult(
             claims=[
                 Claim(
-                    id=uuid.uuid4(),
+                    id=str(uuid.uuid4()),
                     statement="Test claim",
                     evidence_ids=[],
                     verification_status=status,

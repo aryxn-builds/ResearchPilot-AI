@@ -63,7 +63,7 @@ class TavilyTool:
 
                 sources.append(
                     Source(
-                        id=uuid4(),
+                        id=str(uuid4()),
                         task_id=sub_question.id,
                         url=result.get("url", ""),
                         title=result.get("title", ""),

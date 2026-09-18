@@ -5,14 +5,15 @@
 !.env.example
 !.env.local.example
 !.env.*.example
+*.pem
+*.key
+*.cert
 
-# Byte-compiled / optimized / DLL files
+# Python Byte-compiled / Cache / Build
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-
-# Python distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -32,7 +33,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual Environments
+# Python Virtual Environments
 .venv/
 venv/
 env/
@@ -40,7 +41,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Unit test / coverage / linting reports
+# Testing, Coverage & Linters
 htmlcov/
 .tox/
 .nox/
@@ -56,30 +57,53 @@ coverage.xml
 .ruff_cache/
 .mypy_cache/
 
-# Node / Next.js
+# Node.js & Next.js
 node_modules/
 .next/
 out/
-.vercel
-next-env.d.ts
+.vercel/
 *.tsbuildinfo
+next-env.d.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# Test artifacts and screenshots
-*_screenshot.png
-error_screenshot.png
+# Logs & Databases
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# Test artifacts, recordings & screenshots
+*.png
+*.webp
+*.mp4
+*.jpeg
+*.jpg
 .tempmediaStorage/
 
-# IDE / Editor
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.project
+.classpath
+.settings/
 
-# OS
+# Operating System
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
 

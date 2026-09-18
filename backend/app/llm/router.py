@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TypeVar
+import asyncio
 
 import structlog
 from langchain_core.messages import BaseMessage
@@ -43,18 +44,35 @@ class LLMRouter:
     def _is_permanent_error(e: Exception) -> bool:
         """Return True if the error indicates a permanent provider misconfiguration.
 
-        Permanent errors (e.g. 404 model-not-found, 400 bad-request) should not
+        Permanent errors (e.g. 404 model-not-found, 401 unauthorized, 402 quota) should not
         be retried on the same provider and do not warrant re-raising immediately —
         we still want to try the next fallback provider. However we record the failure
         so subsequent calls in the same session skip the broken provider entirely.
         """
         err_str = str(e).lower()
+        
+        # Tool Calling / Parsing / Validation errors are NEVER permanent configuration errors
+        if "tool_use_failed" in err_str or "parse" in err_str or "validation" in err_str or "json" in err_str:
+            return False
+            
         # HTTP 404 / model not found / deprecated model patterns
         if "404" in err_str or "not_found" in err_str or "does not exist" in err_str:
             return True
-        # HTTP 400 / bad request (often a model config issue)
-        if "400" in err_str and "bad request" in err_str:
+            
+        # Auth errors are permanent
+        if "401" in err_str or "unauthorized" in err_str or "invalid_api_key" in err_str:
             return True
+            
+        # Billing errors are permanent for the session
+        if "402" in err_str or "insufficient_quota" in err_str or "credit" in err_str:
+            return True
+            
+        # HTTP 400 could be a config issue (invalid model) or a prompt issue (too many tokens)
+        if "400" in err_str or "bad_request" in err_str or "bad request" in err_str:
+            if "invalid model" in err_str or "unsupported" in err_str:
+                return True
+            return False
+            
         return False
 
     async def generate_structured(
@@ -79,68 +97,90 @@ class LLMRouter:
 
         # 1. Primary: Gemini
         if not self._gemini_permanent_fail:
-            try:
-                model = self.gemini.with_structured_output(schema)
-                result = await model.ainvoke(messages, config=config)
-                if result:
-                    return result
-            except ValidationError as e:
-                logger.error("Primary LLM provider (Gemini) returned invalid schema", error=str(e))
-                raise
-            except Exception as e:
-                if self._is_permanent_error(e):
-                    logger.error(
-                        "Primary LLM provider (Gemini) has permanent configuration error — "
-                        "skipping for the rest of this session",
-                        error=str(e),
-                    )
-                    self._gemini_permanent_fail = True
-                else:
-                    logger.warning("Primary LLM provider (Gemini) failed", error=str(e))
+            for attempt in range(3):
+                try:
+                    model = self.gemini.with_structured_output(schema)
+                    result = await model.ainvoke(messages, config=config)
+                    if result:
+                        return result
+                except ValidationError as e:
+                    logger.error("Primary LLM provider (Gemini) returned invalid schema", error=str(e), attempt=attempt)
+                    if attempt == 2:
+                        raise # Schema errors might need prompt fixing, but we can try regenerating
+                except Exception as e:
+                    if self._is_permanent_error(e):
+                        logger.error(
+                            "Primary LLM provider (Gemini) has permanent configuration error — "
+                            "skipping for the rest of this session",
+                            error=str(e),
+                        )
+                        self._gemini_permanent_fail = True
+                        break
+                    else:
+                        logger.warning("Primary LLM provider (Gemini) failed", error=str(e), attempt=attempt)
+                        if attempt == 2:
+                            break
+                        sleep_time = 20 * attempt + 15
+                        logger.info(f"Sleeping for {sleep_time}s before next attempt...")
+                        await asyncio.sleep(sleep_time)
+                        logger.info(f"Woke up after {sleep_time}s.")
 
         # 2. Fallback: Groq
         if not self._groq_permanent_fail:
-            try:
-                model = self.groq.with_structured_output(schema)
-                result = await model.ainvoke(messages, config=config)
-                if result:
-                    return result
-            except ValidationError as e:
-                logger.error("Fallback LLM provider (Groq) returned invalid schema", error=str(e))
-                raise
-            except Exception as e:
-                if self._is_permanent_error(e):
-                    logger.error(
-                        "Fallback LLM provider (Groq) has permanent configuration error — "
-                        "skipping for the rest of this session",
-                        error=str(e),
-                    )
-                    self._groq_permanent_fail = True
-                else:
-                    logger.warning("Fallback LLM provider (Groq) failed", error=str(e))
+            for attempt in range(3):
+                try:
+                    model = self.groq.with_structured_output(schema)
+                    result = await model.ainvoke(messages, config=config)
+                    if result:
+                        return result
+                except ValidationError as e:
+                    logger.error("Fallback LLM provider (Groq) returned invalid schema", error=str(e), attempt=attempt)
+                    if attempt == 2:
+                        raise
+                except Exception as e:
+                    if self._is_permanent_error(e):
+                        logger.error(
+                            "Fallback LLM provider (Groq) has permanent configuration error — "
+                            "skipping for the rest of this session",
+                            error=str(e),
+                        )
+                        self._groq_permanent_fail = True
+                        break
+                    else:
+                        logger.warning("Fallback LLM provider (Groq) failed", error=str(e), attempt=attempt)
+                        if attempt == 2:
+                            break
+                        await asyncio.sleep(20 * attempt + 15)
 
         # 3. Secondary Fallback: OpenRouter
         if self.openrouter and not self._openrouter_permanent_fail:
-            try:
-                model = self.openrouter.with_structured_output(schema)
-                result = await model.ainvoke(messages, config=config)
-                if result:
-                    return result
-            except ValidationError as e:
-                logger.error(
-                    "Secondary fallback LLM provider (OpenRouter) returned invalid schema",
-                    error=str(e),
-                )
-                raise
-            except Exception as e:
-                if self._is_permanent_error(e):
+            for attempt in range(3):
+                try:
+                    model = self.openrouter.with_structured_output(schema)
+                    result = await model.ainvoke(messages, config=config)
+                    if result:
+                        return result
+                except ValidationError as e:
                     logger.error(
-                        "Secondary fallback LLM provider (OpenRouter) has permanent configuration error",
+                        "Secondary fallback LLM provider (OpenRouter) returned invalid schema",
                         error=str(e),
+                        attempt=attempt
                     )
-                    self._openrouter_permanent_fail = True
-                else:
-                    logger.warning("Secondary fallback LLM provider (OpenRouter) failed", error=str(e))
+                    if attempt == 2:
+                        raise
+                except Exception as e:
+                    if self._is_permanent_error(e):
+                        logger.error(
+                            "Secondary fallback LLM provider (OpenRouter) has permanent configuration error",
+                            error=str(e),
+                        )
+                        self._openrouter_permanent_fail = True
+                        break
+                    else:
+                        logger.warning("Secondary fallback LLM provider (OpenRouter) failed", error=str(e), attempt=attempt)
+                        if attempt == 2:
+                            break
+                        await asyncio.sleep(20 * attempt + 15)
 
         # Exhausted
         logger.error("All LLM providers exhausted")

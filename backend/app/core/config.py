@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     # ─────────────────────────────────────────────
 
     GROQ_API_KEY: str = Field(..., description="Groq API key")
-    GROQ_MODEL: str = "llama-3.1-70b-versatile"
+    GROQ_MODEL: str = "llama3-70b-8192"
 
     # ─────────────────────────────────────────────
     # LLM — SECONDARY FALLBACK (OpenRouter)
@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     # Maximum number of concurrent evidence extraction LLM calls.
     # 45 fully-parallel calls hammered the provider and caused 402 errors.
     # Default of 5 balances speed vs provider rate limits on free-tier accounts.
-    EVIDENCE_EXTRACTION_CONCURRENCY: int = Field(default=5, ge=1, le=20)
+    EVIDENCE_EXTRACTION_CONCURRENCY: int = Field(default=2, ge=1, le=20)
 
     # ─────────────────────────────────────────────
     # RATE LIMITING

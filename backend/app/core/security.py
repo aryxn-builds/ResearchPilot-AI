@@ -51,15 +51,20 @@ def decode_supabase_jwt(token: str, jwt_secret: str) -> AuthenticatedUser:
         raise MissingAuthError()
 
     try:
+        header = jwt.get_unverified_header(token)
+        print(f"DEBUG: Token header: {header}")
+        print(f"DEBUG: Secret length: {len(jwt_secret)}")
         payload: dict = jwt.decode(
             token,
             jwt_secret,
-            algorithms=["HS256", "ES256", "RS256"],
-            options={"verify_exp": True, "verify_signature": False},
+            algorithms=["HS256"],
+            options={"verify_exp": True, "verify_signature": True},
         )
     except jwt.ExpiredSignatureError:
+        print("DEBUG: Token expired")
         raise InvalidTokenError("The access token has expired.") from None
     except jwt.InvalidTokenError as exc:
+        print(f"DEBUG: Token invalid: {exc}")
         raise InvalidTokenError(f"Token validation failed: {exc}") from exc
 
     user_id_raw: str | None = payload.get("sub")
@@ -95,6 +100,7 @@ def extract_bearer_token(authorization_header: str | None) -> str:
 
     parts = authorization_header.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":  # noqa: PLR2004
+        print(f"DEBUG: Invalid auth header format: {authorization_header}")
         raise InvalidTokenError("Authorization header must be in 'Bearer <token>' format.")
 
     return parts[1].strip()
