@@ -41,13 +41,45 @@ class Settings(BaseSettings):
     )
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    # CORS — comma-separated list of allowed origins
+    # CORS — allowed origins and configuration
     CORS_ALLOWED_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = ""  # Supported alias for CORS_ALLOWED_ORIGINS
+    CORS_ORIGIN_REGEX: str = ""  # Optional regex for preview deployments (e.g. r"^https://.*\.vercel\.app$")
 
     @property
     def cors_origins_list(self) -> list[str]:
-        """Parse CORS_ALLOWED_ORIGINS into a list of origin strings."""
-        return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+        """Parse CORS_ALLOWED_ORIGINS or CORS_ORIGINS into a clean list of origin strings.
+
+        Supports comma-separated strings or JSON arrays.
+        Strips surrounding quotes, whitespace, and trailing slashes.
+        """
+        raw = self.CORS_ORIGINS if self.CORS_ORIGINS.strip() else self.CORS_ALLOWED_ORIGINS
+        if not raw:
+            return ["http://localhost:3000"]
+
+        raw = raw.strip()
+        items: list[str] = []
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                import json
+
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    items = [str(x) for x in parsed]
+                else:
+                    items = [raw]
+            except Exception:
+                items = raw.strip("[]").split(",")
+        else:
+            items = raw.split(",")
+
+        origins: list[str] = []
+        for item in items:
+            clean = item.strip().strip("'\"").rstrip("/")
+            if clean and clean not in origins:
+                origins.append(clean)
+
+        return origins if origins else ["http://localhost:3000"]
 
     # ─────────────────────────────────────────────
     # SUPABASE

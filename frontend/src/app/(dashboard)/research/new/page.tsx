@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
+import { getApiUrl } from '@/lib/api'
 import { Bot, Loader2 } from 'lucide-react'
 
 export default function NewResearchPage() {
@@ -29,7 +30,7 @@ export default function NewResearchPage() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/research`, {
+      const response = await fetch(getApiUrl('/research'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

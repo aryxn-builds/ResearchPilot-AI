@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getApiUrl } from '@/lib/api'
 import ReactMarkdown from 'react-markdown'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -272,8 +273,7 @@ export default function ReportPage() {
         }
 
         // Fetch report content from the backend API using Bearer token
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL
-        const reportRes = await fetch(`${apiUrl}/research/${id}/report`, {
+        const reportRes = await fetch(getApiUrl(`/research/${id}/report`), {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },

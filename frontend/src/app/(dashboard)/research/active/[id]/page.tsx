@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getApiUrl } from '@/lib/api'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Loader2, CheckCircle2, ArrowRight, Bot } from 'lucide-react'
@@ -38,7 +39,7 @@ export default function ActiveResearchPage() {
       // Assuming the backend SSE endpoint can authenticate via query param or doesn't need auth for the stream if it's protected otherwise,
       // Actually, standard EventSource doesn't support headers. If backend needs it, we append it as a query param.
       
-      const url = new URL(`${process.env.NEXT_PUBLIC_API_URL}/research/${id}/stream`)
+      const url = new URL(getApiUrl(`/research/${id}/stream`))
       url.searchParams.append('token', session.access_token)
 
       eventSource = new EventSource(url.toString())
