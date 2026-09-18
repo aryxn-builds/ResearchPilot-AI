@@ -233,6 +233,12 @@ class ResearchService:
 
             report_obj = final_state.get("report")
             if report_obj:
+                from app.agents.writer import sanitize_report
+                sanitized_report = sanitize_report(
+                    report_obj,
+                    sources=final_state.get("sources", []),
+                    evidence_items=final_state.get("evidence_items", []),
+                )
                 await (
                     client.table("reports")
                     .insert(
@@ -240,11 +246,11 @@ class ResearchService:
                             "id": report_id,
                             "session_id": str(session_id),
                             "user_id": str(user_id),
-                            "content_markdown": report_obj.markdown,
-                            "citation_map": {c.marker: c.source_id for c in report_obj.citation_map},
-                            "total_citations": report_obj.total_citations,
-                            "word_count": report_obj.word_count,
-                            "section_count": report_obj.section_count,
+                            "content_markdown": sanitized_report.markdown,
+                            "citation_map": {c.marker: c.source_id for c in sanitized_report.citation_map},
+                            "total_citations": sanitized_report.total_citations,
+                            "word_count": sanitized_report.word_count,
+                            "section_count": sanitized_report.section_count,
                             "generated_at": now,
                             "created_at": now,
                             "updated_at": now,

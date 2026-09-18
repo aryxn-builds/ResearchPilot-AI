@@ -170,6 +170,7 @@ async def write_report(state: ResearchState, config: RunnableConfig) -> dict:
     """Node: Generate the final markdown report."""
     critic_result = state.get("critic_result")
     sources = state.get("sources", [])
+    evidence_items = state.get("evidence_items", [])
 
     verified_claims = []
     if critic_result:
@@ -177,6 +178,11 @@ async def write_report(state: ResearchState, config: RunnableConfig) -> dict:
 
     handler = AsyncAgentRunCallbackHandler(state["session_id"], "WriterAgent", persistence_service)
     report = await writer_agent.run(
-        state["research_question"], verified_claims, sources, callbacks=[handler]
+        state["research_question"],
+        verified_claims,
+        sources,
+        evidence_items=evidence_items,
+        callbacks=[handler],
     )
     return {"report": report}
+
