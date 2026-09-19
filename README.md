@@ -9,6 +9,7 @@
   [![Database](https://img.shields.io/badge/Database-Supabase-3ECF8E.svg?logo=supabase)]()
   [![Verification Rate](https://img.shields.io/badge/Claim_Verification-97.2%25-brightgreen.svg)]()
   [![Citation Integrity](https://img.shields.io/badge/Citation_Integrity-100%25-brightgreen.svg)]()
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 </div>
 
 ---
@@ -385,4 +386,4 @@ Before writing any code:
 > Do not introduce new dependencies, frameworks, or services without updating `ARCHITECTURE.md` and receiving acknowledgment.
 
 ---
-*License: TBD — to be determined before public launch.*
+*License: [MIT](LICENSE) — see the LICENSE file for details.*
