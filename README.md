@@ -315,7 +315,55 @@ See `AGENTS.md → Testing Rules` for the testing policy enforced on all contrib
 - **Database:** Supabase Cloud — no self-hosting for MVP
 - **CI/CD:** GitHub Actions — lint, typecheck, unit tests on every PR
 
-See `ARCHITECTURE.md → Deployment Architecture` and ADL-007 for backend hosting decision.
+## Production Health Check
+
+ResearchPilot AI provides two production-safe health monitoring endpoints:
+
+- **Liveness Probe (`GET /api/v1/health`)**:
+  - Lightweight process check used by load balancers and orchestrators.
+  - Returns `HTTP 200` with status, version, and timestamp as long as the Python backend process is alive.
+  - No database queries, no external network calls.
+
+- **Deep Health & Supabase Connectivity Probe (`GET /api/v1/health/deep`)**:
+  - Verifies both that the backend is active and that real read-only communication with Supabase PostgreSQL is functional.
+  - Executes a minimal read-only query (`SELECT id FROM research_sessions LIMIT 1`) with bounded timeout (`DATABASE_HEALTH_CHECK_TIMEOUT_SECONDS=5.0`).
+  - Strictly read-only: does **NOT** trigger research pipelines, LLM calls, Tavily searches, or database mutations.
+  - Returns:
+    - **`HTTP 200 OK`** when backend and Supabase are healthy:
+      ```json
+      {
+        "status": "healthy",
+        "backend": "ok",
+        "database": "ok"
+      }
+      ```
+    - **`HTTP 503 Service Unavailable`** if Supabase is unreachable, timed out, or uninitialized:
+      ```json
+      {
+        "status": "unhealthy",
+        "backend": "ok",
+        "database": "unavailable"
+      }
+      ```
+
+### Configuring an External Scheduler / Uptime Monitor
+
+To keep the Render backend warm and verify Supabase connectivity:
+1. Configure an external uptime monitoring service (such as [Better Uptime](https://betteruptime.com), [UptimeRobot](https://uptimerobot.com), or [cron-job.org](https://cron-job.org)).
+2. Set the monitor URL to:
+   ```
+   https://<RENDER-BACKEND-DOMAIN>/api/v1/health/deep
+   ```
+3. **Recommended Interval:** Every **4 to 6 hours** (do not schedule it every few seconds or every minute, which causes unnecessary resource usage).
+4. **Expected Status Code:** `200`.
+5. **Optional Secret:** If `HEALTH_CHECK_SECRET` is defined in the backend environment, include the header:
+   ```
+   Authorization: Bearer <your-health-check-secret>
+   ```
+
+> [!NOTE]
+> **Supabase Keep-Alive & Inactivity Notice**:
+> Periodically pinging `/api/v1/health/deep` verifies connectivity, exercises the database API gateway, and keeps the Render backend awake. However, it does **not** guarantee prevention of provider-side inactivity suspension on Supabase free-tier projects, which is governed strictly by Supabase's project pause policies.
 
 ---
 

@@ -148,3 +148,34 @@ def get_service_client() -> AsyncClient:
             "Supabase service client is not initialized. Was init_supabase_clients() called?"
         )
     return _service_client
+
+
+async def check_database_connectivity(timeout: float | None = None) -> bool:
+    """Perform a minimal, read-only connectivity check against Supabase.
+
+    Executes a SELECT id FROM research_sessions LIMIT 1 query with bounded timeout.
+    This operation is strictly read-only, triggers no pipelines, and mutates no data.
+
+    Args:
+        timeout: Maximum seconds to wait. Defaults to settings.DATABASE_HEALTH_CHECK_TIMEOUT_SECONDS.
+
+    Returns:
+        True if the database responds successfully, False on timeout or error.
+    """
+    if timeout is None:
+        timeout = getattr(settings, "DATABASE_HEALTH_CHECK_TIMEOUT_SECONDS", 5.0)
+
+    try:
+        client = get_service_client()
+        query_coro = client.table("research_sessions").select("id").limit(1).execute()
+        await asyncio.wait_for(query_coro, timeout=timeout)
+        return True
+    except RuntimeError as exc:
+        logger.warning("database_connectivity_uninitialized", error=str(exc))
+        return False
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning("database_connectivity_timeout", timeout_seconds=timeout)
+        return False
+    except Exception as exc:
+        logger.warning("database_connectivity_failed", error=str(exc), error_type=type(exc).__name__)
+        return False

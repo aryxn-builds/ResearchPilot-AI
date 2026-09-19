@@ -56,7 +56,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         # Skip logging for health checks to reduce noise
-        if request.url.path not in {"/api/v1/health", "/health"}:
+        if not (request.url.path.startswith("/api/v1/health") or request.url.path in {"/health", "/api/v1/readiness"}):
             logger.info(
                 "request_complete",
                 method=request.method,

@@ -95,6 +95,14 @@ class Settings(BaseSettings):
         default="",
         description="Direct DB URL for migrations only; not required at runtime",
     )
+    DATABASE_HEALTH_CHECK_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        description="Timeout in seconds for deep database health check queries",
+    )
+    HEALTH_CHECK_SECRET: str = Field(
+        default="",
+        description="Optional secret for health check authorization; if empty, public",
+    )
 
     # ─────────────────────────────────────────────
     # LLM — PRIMARY (Google Gemini)

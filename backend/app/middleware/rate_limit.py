@@ -69,9 +69,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Check rate limits before passing request to route handler."""
-        # Skip rate limiting for health checks and unprotected routes
         path = request.url.path
-        if path in {"/api/v1/health", "/health", "/openapi.json", "/docs", "/redoc"}:
+        if path.startswith("/api/v1/health") or path in {"/health", "/api/v1/readiness", "/openapi.json", "/docs", "/redoc"}:
             return await call_next(request)
 
         # user_id is set by the auth dependency; if absent, skip (auth will reject anyway)
