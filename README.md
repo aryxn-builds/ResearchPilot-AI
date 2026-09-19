@@ -128,15 +128,18 @@ ResearchPilot AI/
 │   │   └── prompts/   # LLM prompt templates
 │   └── tests/
 ├── evaluation/        # Research quality evaluation scripts
-├── docs/              # Additional technical documentation
+├── docs/              # Specifications and technical documentation
+│   ├── AGENTS.md          # AI Coding Agent Instruction Manual
+│   ├── API_SPEC.md        # API Contract Document
+│   ├── ARCHITECTURE.md    # System Architecture Document
+│   ├── DATABASE_SCHEMA.md # Database Schema Document
+│   ├── DESIGN_SYSTEM.md   # Design System Document
+│   ├── PRD.md             # Product Requirements Document
+│   ├── UI_UX_SPEC.md      # UI/UX Specification
+│   ├── USER_FLOWS.md      # User Journey Document
+│   ├── V1_FREEZE.md       # V1 Specification Freeze
+│   └── decisions/         # Architecture Decision Records
 ├── .github/workflows/ # CI/CD pipelines
-├── PRD.md             # Product Requirements Document
-├── ARCHITECTURE.md    # System Architecture Document
-├── AGENTS.md          # AI Coding Agent Instruction Manual
-├── DATABASE_SCHEMA.md # Database Schema Document
-├── API_SPEC.md        # API Contract Document
-├── DESIGN_SYSTEM.md   # Design System Document
-├── USER_FLOWS.md      # User Journey Document
 └── .env.example       # Environment variable template
 ```
 
@@ -146,17 +149,17 @@ ResearchPilot AI/
 
 ### Phase 0 — Planning and Architecture (Completed)
 
-- [x] Product Requirements Document (PRD.md)
-- [x] System Architecture Document (ARCHITECTURE.md)
-- [x] AI Coding Agent Instructions (AGENTS.md)
-- [x] Database Schema Design (DATABASE_SCHEMA.md)
-- [x] API Contract (API_SPEC.md)
-- [x] Design System (DESIGN_SYSTEM.md)
-- [x] User Flows (USER_FLOWS.md)
+- [x] Product Requirements Document (docs/PRD.md)
+- [x] System Architecture Document (docs/ARCHITECTURE.md)
+- [x] AI Coding Agent Instructions (docs/AGENTS.md)
+- [x] Database Schema Design (docs/DATABASE_SCHEMA.md)
+- [x] API Contract (docs/API_SPEC.md)
+- [x] Design System (docs/DESIGN_SYSTEM.md)
+- [x] User Flows (docs/USER_FLOWS.md)
 - [x] Environment variable template (.env.example)
-- [x] UI/UX Specification (UI_UX_SPEC.md)
+- [x] UI/UX Specification (docs/UI_UX_SPEC.md)
 - [x] Architecture Decision Records (docs/decisions/ARCHITECTURE_DECISIONS.md)
-- [x] V1 Specification Freeze (V1_FREEZE.md)
+- [x] V1 Specification Freeze (docs/V1_FREEZE.md)
 
 ### Phase 1 — MVP Development
 
@@ -320,15 +323,15 @@ See `ARCHITECTURE.md → Deployment Architecture` and ADL-007 for backend hostin
 
 | Document | Purpose |
 |----------|---------|
-| [PRD.md](PRD.md) | Product requirements, features, success metrics, risks |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, agent design, data flow, security |
-| [AGENTS.md](AGENTS.md) | AI coding agent rules, folder structure, coding standards |
-| [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | Data model, table definitions, RLS strategy |
-| [API_SPEC.md](API_SPEC.md) | API contract, endpoints, SSE event format |
-| [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | Color palette, typography, component patterns |
-| [USER_FLOWS.md](USER_FLOWS.md) | User journeys and flow diagrams |
-| [UI_UX_SPEC.md](UI_UX_SPEC.md) | UI/UX specifications and Stitch component plans |
-| [V1_FREEZE.md](V1_FREEZE.md) | Summary of the V1 specification freeze |
+| [PRD.md](docs/PRD.md) | Product requirements, features, success metrics, risks |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, agent design, data flow, security |
+| [AGENTS.md](docs/AGENTS.md) | AI coding agent rules, folder structure, coding standards |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Data model, table definitions, RLS strategy |
+| [API_SPEC.md](docs/API_SPEC.md) | API contract, endpoints, SSE event format |
+| [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | Color palette, typography, component patterns |
+| [USER_FLOWS.md](docs/USER_FLOWS.md) | User journeys and flow diagrams |
+| [UI_UX_SPEC.md](docs/UI_UX_SPEC.md) | UI/UX specifications and Stitch component plans |
+| [V1_FREEZE.md](docs/V1_FREEZE.md) | Summary of the V1 specification freeze |
 | [.env.example](.env.example) | Environment variable template with documentation |
 
 ---

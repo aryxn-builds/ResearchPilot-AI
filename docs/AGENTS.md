@@ -248,21 +248,23 @@ ResearchPilot AI/
 │   ├── metrics/                     # Evaluation metric implementations
 │   └── run_eval.py                  # Evaluation runner
 │
-├── docs/                            # Additional technical documentation
-│   └── decisions/                   # Additional ADRs not in ARCHITECTURE.md
+├── docs/                            # Specifications and technical documentation
+│   ├── AGENTS.md                        # AI Coding Agent Instruction Manual (THIS FILE)
+│   ├── API_SPEC.md                      # API Contract Document
+│   ├── ARCHITECTURE.md                  # System Architecture Document
+│   ├── DATABASE_SCHEMA.md               # Database Schema Document
+│   ├── DESIGN_SYSTEM.md                 # Design System Document
+│   ├── PRD.md                           # Product Requirements Document
+│   ├── UI_UX_SPEC.md                    # UI/UX Specification
+│   ├── USER_FLOWS.md                    # User Journey Document
+│   ├── V1_FREEZE.md                     # V1 Specification Freeze
+│   └── decisions/                       # Additional ADRs not in ARCHITECTURE.md
 │
 ├── .github/                         # GitHub Actions workflows
 │   └── workflows/
 │       ├── ci.yml                   # Lint, type-check, test
 │       └── deploy.yml               # Deploy on merge to main
 │
-├── PRD.md                           # Product Requirements Document
-├── ARCHITECTURE.md                  # System Architecture Document
-├── AGENTS.md                        # AI Coding Agent Instruction Manual (THIS FILE)
-├── DATABASE_SCHEMA.md               # Database Schema Document
-├── API_SPEC.md                      # API Contract Document
-├── DESIGN_SYSTEM.md                 # Design System Document
-├── USER_FLOWS.md                    # User Journey Document
 ├── .env.example                     # Environment variable template
 ├── README.md                        # Project README
 ├── docker-compose.yml               # Local development environment (optional)
