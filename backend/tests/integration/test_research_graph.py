@@ -66,6 +66,7 @@ def mock_agents():
             snippet="Test evidence",
         )
         evidence_extractor.run = AsyncMock(return_value=[evidence1])
+        evidence_extractor.run_batch = AsyncMock(return_value=[evidence1])
 
         claim1 = Claim(
             id=str(uuid.uuid4()),

@@ -92,8 +92,8 @@ class TestTaskAwareRouting:
         task_to_sources: dict[str, set[str]] = {}
         for send in sends:
             sq_id = str(send.arg["sub_question"].id)
-            url = send.arg["source"].url
-            task_to_sources.setdefault(sq_id, set()).add(url)
+            for src in send.arg.get("sources", [send.arg.get("source")]):
+                task_to_sources.setdefault(sq_id, set()).add(src.url)
 
         # Task A should only get A sources
         assert task_to_sources.get(str(sq_a.id), set()) == {"https://a1.com", "https://a2.com"}
@@ -162,7 +162,11 @@ class TestTaskAwareRouting:
         state = make_state(plan, [good_src, bad_src])
 
         sends = route_to_extraction(state)
-        urls = {s.arg["source"].url for s in sends}
+        urls = {
+            src.url
+            for s in sends
+            for src in s.arg.get("sources", [s.arg.get("source")])
+        }
 
         assert "https://good.com" in urls
         assert "https://bad.com" not in urls
@@ -252,6 +256,7 @@ class TestConcurrencyLimit:
             patch("app.graph.nodes.persistence_service") as mock_ps,
         ):
             mock_extractor.run = fake_extraction
+            mock_extractor.run_batch = fake_extraction
             mock_ps.save_agent_run = AsyncMock()
 
             tasks = []

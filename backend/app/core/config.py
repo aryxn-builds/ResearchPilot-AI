@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     # ─────────────────────────────────────────────
 
     GROQ_API_KEY: str = Field(..., description="Groq API key")
-    GROQ_MODEL: str = "llama3-70b-8192"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
 
     # ─────────────────────────────────────────────
     # LLM — SECONDARY FALLBACK (OpenRouter)
@@ -119,7 +119,7 @@ class Settings(BaseSettings):
         default="",
         description="OpenRouter API key — optional but recommended for resilience",
     )
-    OPENROUTER_MODEL: str = "mistralai/mixtral-8x7b-instruct"
+    OPENROUTER_MODEL: str = "openrouter/free"
 
     # ─────────────────────────────────────────────
     # LLM ROUTER CONFIGURATION
@@ -127,8 +127,9 @@ class Settings(BaseSettings):
 
     PRIMARY_LLM_PROVIDER: Literal["gemini", "groq", "openrouter"] = "gemini"
     LLM_MAX_OUTPUT_TOKENS: int = 4096
-    LLM_TIMEOUT_SECONDS: int = 30
+    LLM_TIMEOUT_SECONDS: int = 60
     LLM_RETRY_ATTEMPTS: int = 3
+    LLM_RETRY_BASE_DELAY: float = 0.5
 
     # ─────────────────────────────────────────────
     # WEB RESEARCH (Tavily)
@@ -160,14 +161,13 @@ class Settings(BaseSettings):
     RESEARCH_MAX_ITERATIONS_HARD_CAP: int = Field(default=3, ge=1, le=3)
     RESEARCH_SESSION_TIMEOUT_SECONDS: int = 300
     RESEARCH_MAX_CONCURRENT_SESSIONS_PER_USER: int = 3
-    RESEARCH_MAX_SOURCES_PER_TASK: int = 5
+    RESEARCH_MAX_SOURCES_PER_TASK: int = 3
     RESEARCH_MAX_SUB_QUESTIONS: int = 8
-    RESEARCH_MAX_SOURCE_CONTENT_TOKENS: int = 2000
+    RESEARCH_MAX_SOURCE_CONTENT_TOKENS: int = 800
 
-    # Maximum number of concurrent evidence extraction LLM calls.
-    # 45 fully-parallel calls hammered the provider and caused 402 errors.
-    # Default of 5 balances speed vs provider rate limits on free-tier accounts.
-    EVIDENCE_EXTRACTION_CONCURRENCY: int = Field(default=2, ge=1, le=20)
+    # Evidence extraction batching and concurrency
+    EVIDENCE_BATCH_SIZE: int = Field(default=2, ge=1, le=10, description="Sources per extraction LLM call")
+    EVIDENCE_EXTRACTION_CONCURRENCY: int = Field(default=1, ge=1, le=20, description="Max concurrent extraction calls")
 
     # ─────────────────────────────────────────────
     # RATE LIMITING

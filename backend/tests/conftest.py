@@ -32,6 +32,7 @@ _TEST_ENV = {
     "GROQ_API_KEY": "test-groq-key",
     "TAVILY_API_KEY": "test-tavily-key",
     "LANGFUSE_ENABLED": "false",
+    "LLM_RETRY_BASE_DELAY": "0.001",
 }
 
 for key, value in _TEST_ENV.items():

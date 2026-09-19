@@ -1,0 +1,52 @@
+[
+  {
+    "id": "eval-01",
+    "category": "AI/ML",
+    "query": "Compare Python 3.11 and Python 3.12 for modern AI and machine learning workflows."
+  },
+  {
+    "id": "eval-02",
+    "category": "Python",
+    "query": "What are the performance differences between uv and pip or poetry in modern Python package management?"
+  },
+  {
+    "id": "eval-03",
+    "category": "LLMs",
+    "query": "What are the architectural and performance differences between LLaMA 3 and Mistral/Mixtral architectures?"
+  },
+  {
+    "id": "eval-04",
+    "category": "RAG",
+    "query": "What are the state-of-the-art hybrid search techniques combining dense vector embeddings and BM25 sparse retrieval?"
+  },
+  {
+    "id": "eval-05",
+    "category": "Computer Vision",
+    "query": "What are the leading vision-language models for zero-shot document understanding in 2026?"
+  },
+  {
+    "id": "eval-06",
+    "category": "Software Engineering",
+    "query": "What are the trade-offs between monolithic and micro-frontend architectures in Next.js applications?"
+  },
+  {
+    "id": "eval-07",
+    "category": "Databases",
+    "query": "Compare Qdrant, Pinecone, and pgvector for large-scale enterprise vector similarity search."
+  },
+  {
+    "id": "eval-08",
+    "category": "Cloud/Deployment",
+    "query": "What are the best practices for containerizing FastAPI applications with multi-stage Docker builds on Render?"
+  },
+  {
+    "id": "eval-09",
+    "category": "Generative AI",
+    "query": "What are the primary mechanisms and benchmarks for hallucination detection in multi-agent LLM systems?"
+  },
+  {
+    "id": "eval-10",
+    "category": "Comparative Systems",
+    "query": "Compare Server-Sent Events (SSE) and WebSockets for real-time streaming progress in AI agent pipelines."
+  }
+]

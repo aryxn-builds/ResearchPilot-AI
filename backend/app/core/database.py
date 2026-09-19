@@ -16,10 +16,50 @@ from functools import lru_cache
 
 from supabase import AsyncClient, create_async_client
 
-from app.core.config import settings
-from app.core.logging import get_logger
+import asyncio
+import random
+from typing import Awaitable, Callable, TypeVar
+import httpx
+import structlog
 
-logger = get_logger(__name__)
+from app.core.config import settings
+
+logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
+
+
+async def execute_with_retry(
+    operation: Callable[[], Awaitable[T]],
+    max_retries: int = 3,
+    base_delay: float = 0.5,
+    max_delay: float = 5.0,
+) -> T:
+    """Execute a database operation with exponential backoff for transient network errors.
+
+    Retries on network/transport connection errors (ConnectError, ConnectTimeout, ReadTimeout)
+    to protect against transient Supabase proxy or network blips.
+    """
+    transient_errors = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.WriteTimeout,
+        httpx.PoolTimeout,
+        httpx.RemoteProtocolError,
+        ConnectionError,
+        TimeoutError,
+    )
+    for attempt in range(max_retries):
+        try:
+            return await operation()
+        except transient_errors as e:
+            if attempt == max_retries - 1:
+                logger.error("Database operation failed after retries", error=str(e), attempts=max_retries)
+                raise
+            delay = min(max_delay, base_delay * (2 ** attempt) + random.uniform(0.1, 0.4))
+            logger.warning("Transient database network error, retrying", error=str(e), attempt=attempt, delay=delay)
+            await asyncio.sleep(delay)
 
 
 @lru_cache(maxsize=1)

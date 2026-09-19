@@ -14,6 +14,7 @@ from app.agents.writer import WriterAgent
 from app.core.config import settings
 from app.graph.state import ResearchState
 from app.llm.callbacks import AsyncAgentRunCallbackHandler
+from app.llm.observability import get_langfuse_callback
 from app.llm.router import LLMRouter
 from app.schemas.agent import Source, SubQuestion
 from app.services.persistence import PersistenceService
@@ -33,6 +34,14 @@ evidence_extractor = EvidenceExtractor(llm_router)
 synthesis_agent = SynthesisAgent(llm_router)
 critic_agent = CriticAgent(llm_router)
 writer_agent = WriterAgent(llm_router)
+
+
+def _get_callbacks(session_id: str, agent_name: str) -> list:
+    """Return persistence callback handler plus optional Langfuse handler if healthy."""
+    handlers = [AsyncAgentRunCallbackHandler(session_id, agent_name, persistence_service)]
+    handlers.extend(get_langfuse_callback(session_id))
+    return handlers
+
 
 # Bounded concurrency semaphore for evidence extraction.
 # Prevents fan-out from hammering the LLM provider with too many simultaneous requests,
@@ -54,11 +63,10 @@ def _get_extraction_semaphore() -> asyncio.Semaphore:
     return _evidence_extraction_semaphore
 
 
-
 async def plan_research(state: ResearchState, config: RunnableConfig) -> dict:
     """Node: Decompose question into a plan."""
-    handler = AsyncAgentRunCallbackHandler(state["session_id"], "PlannerAgent", persistence_service)
-    plan = await planner_agent.run(state["research_question"], callbacks=[handler])
+    callbacks = _get_callbacks(state["session_id"], "PlannerAgent")
+    plan = await planner_agent.run(state["research_question"], callbacks=callbacks)
     await persistence_service.save_plan(state["session_id"], plan)
     return {"research_plan": plan, "critic_iterations": 0}
 
@@ -101,24 +109,25 @@ async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
 
 
 async def extract_evidence(state: dict, config: RunnableConfig) -> dict:
-    """Node: Fan-out evidence extraction for a source and sub-question.
+    """Node: Fan-out evidence extraction for sources and sub-question.
 
     Bounded by _get_extraction_semaphore() to prevent provider rate-limit errors
     caused by too many simultaneous LLM calls during parallel fan-out.
     """
     # Partial state received from Send API
     sub_question: SubQuestion = state["sub_question"]
-    source: Source = state["source"]
+    sources: list[Source] = state.get("sources") or ([state["source"]] if "source" in state else [])
     session_id = state.get("session_id", "unknown_session")
-    handler = AsyncAgentRunCallbackHandler(session_id, "EvidenceExtractor", persistence_service)
+    callbacks = _get_callbacks(session_id, "EvidenceExtractor")
 
     async with _get_extraction_semaphore():
-        evidence_items = await evidence_extractor.run(sub_question, source, callbacks=[handler])
+        evidence_items = await evidence_extractor.run_batch(sub_question, sources, callbacks=callbacks)
+        await asyncio.sleep(0.5)
 
     import uuid
     for ev in evidence_items:
         # Reassign deterministic ID to prevent foreign key violations on retries (Rule A-04)
-        ev.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{source.id}:{ev.snippet[:50]}"))
+        ev.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{ev.source_id}:{ev.snippet[:50]}"))
 
     return {"evidence_items": evidence_items}
 
@@ -130,10 +139,8 @@ async def synthesize_claims(state: ResearchState, config: RunnableConfig) -> dic
     # Before synthesis, we should persist all evidence extracted during the fan-out
     await persistence_service.save_evidence(state["session_id"], evidence_items)
 
-    handler = AsyncAgentRunCallbackHandler(
-        state["session_id"], "SynthesisAgent", persistence_service
-    )
-    claims = await synthesis_agent.run(evidence_items, callbacks=[handler])
+    callbacks = _get_callbacks(state["session_id"], "SynthesisAgent")
+    claims = await synthesis_agent.run(evidence_items, callbacks=callbacks)
 
     # Validate that all evidence_ids referenced by claims actually exist in evidence_items
     valid_evidence_ids = {str(e.id) for e in evidence_items}
@@ -152,8 +159,8 @@ async def critic_verify(state: ResearchState, config: RunnableConfig) -> dict:
     claims = state.get("claims", [])
     evidence_items = state.get("evidence_items", [])
 
-    handler = AsyncAgentRunCallbackHandler(state["session_id"], "CriticAgent", persistence_service)
-    critic_result = await critic_agent.run(claims, evidence_items, callbacks=[handler])
+    callbacks = _get_callbacks(state["session_id"], "CriticAgent")
+    critic_result = await critic_agent.run(claims, evidence_items, callbacks=callbacks)
 
     current_iterations = state.get("critic_iterations", 0)
     await persistence_service.save_critic_result(
@@ -176,13 +183,13 @@ async def write_report(state: ResearchState, config: RunnableConfig) -> dict:
     if critic_result:
         verified_claims = [c for c in critic_result.claims if c.verification_status == "verified"]
 
-    handler = AsyncAgentRunCallbackHandler(state["session_id"], "WriterAgent", persistence_service)
+    callbacks = _get_callbacks(state["session_id"], "WriterAgent")
     report = await writer_agent.run(
         state["research_question"],
         verified_claims,
         sources,
         evidence_items=evidence_items,
-        callbacks=[handler],
+        callbacks=callbacks,
     )
     return {"report": report}
 

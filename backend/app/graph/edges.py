@@ -53,6 +53,7 @@ def route_to_extraction(state: ResearchState) -> list[Send] | str:
                 task_key = str(source.task_id)
                 sources_by_task.setdefault(task_key, []).append(source)
 
+        batch_size = max(1, getattr(settings, "EVIDENCE_BATCH_SIZE", 2))
         for sq in plan.sub_questions:
             task_key = str(sq.id)
             task_sources = sources_by_task.get(task_key, [])
@@ -60,13 +61,16 @@ def route_to_extraction(state: ResearchState) -> list[Send] | str:
             # Cap per-task sources to avoid context bloat (config constraint)
             task_sources = task_sources[: settings.RESEARCH_MAX_SOURCES_PER_TASK]
 
-            for source in task_sources:
+            # Batch sources into chunks of size batch_size to drastically reduce LLM calls
+            for i in range(0, len(task_sources), batch_size):
+                batch = task_sources[i : i + batch_size]
                 sends.append(
                     Send(
                         "extract_evidence",
                         {
                             "sub_question": sq,
-                            "source": source,
+                            "sources": batch,
+                            "source": batch[0],  # for backward compatibility
                             "session_id": state.get("session_id"),
                         },
                     )

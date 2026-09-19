@@ -18,6 +18,7 @@ def get_openrouter_model() -> ChatOpenAI:
         model=settings.OPENROUTER_MODEL,
         api_key=SecretStr(settings.OPENROUTER_API_KEY),
         temperature=0.0,
+        max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
         max_retries=settings.LLM_RETRY_ATTEMPTS,
         timeout=settings.LLM_TIMEOUT_SECONDS,
         default_headers={

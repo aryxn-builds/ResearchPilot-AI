@@ -1,0 +1,14 @@
+[
+  {
+    "evaluation_id": "eval-01",
+    "category": "AI/ML",
+    "query": "Compare Python 3.11 and Python 3.12 for modern AI and machine learning workflows.",
+    "session_id": "e0833444-128d-46b1-a158-cbb24c99a468",
+    "start_time": "2026-09-19T04:26:08.781910+00:00",
+    "end_time": "2026-09-19T04:33:10.280987+00:00",
+    "duration_seconds": 421.5,
+    "status": "failed",
+    "failure_stage": "graph_execution",
+    "error": "Timeout or uncompleted status: verifying"
+  }
+]

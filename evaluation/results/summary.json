@@ -1,0 +1,127 @@
+{
+  "evaluation_runs": 10,
+  "successful_runs": 4,
+  "failed_runs": 6,
+  "failure_rate_pct": 60.0,
+  "latency_seconds": {
+    "total": 783.682,
+    "mean": 195.92,
+    "median": 208.61,
+    "min": 153.45,
+    "max": 213.02
+  },
+  "sources_discovered": {
+    "total": 118,
+    "mean": 29.5,
+    "median": 30.0,
+    "min": 20,
+    "max": 38
+  },
+  "sources_retained": {
+    "total": 52,
+    "mean": 13,
+    "median": 12.0,
+    "min": 8,
+    "max": 20
+  },
+  "retention_rate_pct": {
+    "overall": 44.07,
+    "mean": 45.19,
+    "median": 42.49
+  },
+  "evidence_extracted": {
+    "total": 75,
+    "mean": 18.75,
+    "median": 16.0,
+    "min": 9,
+    "max": 34
+  },
+  "claims_generated": {
+    "total": 72,
+    "mean": 18,
+    "median": 17.0,
+    "min": 13,
+    "max": 25
+  },
+  "claims_verified": {
+    "total": 70,
+    "mean": 17.5,
+    "median": 16.5,
+    "min": 13,
+    "max": 24
+  },
+  "verification_rate_pct": {
+    "overall": 97.22,
+    "mean": 97.69,
+    "median": 98.0
+  },
+  "llm_calls": {
+    "physical": {
+      "total": 213,
+      "mean": 53.25,
+      "median": 56.0,
+      "min": 41,
+      "max": 60
+    },
+    "logical": {
+      "total": 183,
+      "mean": 45.75,
+      "median": 48.5,
+      "min": 34,
+      "max": 52
+    },
+    "fallbacks": {
+      "total": 30,
+      "mean": 7.5,
+      "median": 7.0,
+      "min": 6,
+      "max": 10
+    }
+  },
+  "tokens": {
+    "input_tokens": {
+      "total": 417789,
+      "mean": 104447.25,
+      "median": 111506.0,
+      "min": 70248,
+      "max": 124529
+    },
+    "output_tokens": {
+      "total": 40572,
+      "mean": 10143,
+      "median": 8996.5,
+      "min": 7901,
+      "max": 14678
+    },
+    "total_tokens": {
+      "total": 458361,
+      "mean": 114590.25,
+      "median": 120502.5,
+      "min": 78149,
+      "max": 139207
+    }
+  },
+  "cost_usd": {
+    "total_all_runs": 0.043506,
+    "mean_per_query": 0.010877,
+    "median_per_query": 0.011062,
+    "min_per_query": 0.007639,
+    "max_per_query": 0.013743,
+    "gemini_total": 0.043506,
+    "groq_total": 0.0,
+    "openrouter_total": 0.0
+  },
+  "citations": {
+    "total_reports_evaluated": 4,
+    "reports_with_citation_failures": 0,
+    "total_citation_failures": 0,
+    "citation_failure_rate_pct": 0.0,
+    "breakdown": {
+      "broken_citations": 0,
+      "raw_uuid_leaks": 0,
+      "orphan_claims": 0,
+      "orphan_evidence": 0,
+      "invalid_mappings": 0
+    }
+  }
+}

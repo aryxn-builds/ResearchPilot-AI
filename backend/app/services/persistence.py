@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import structlog
 
-from app.core.database import get_service_client
+from app.core.database import execute_with_retry, get_service_client
 from app.schemas.agent import (
     Claim,
     CriticResult,
@@ -18,6 +18,7 @@ class PersistenceService:
     """Handles persisting LangGraph entities to the database.
 
     Uses the service role client because writes are backend-internal operations.
+    Operations are wrapped in execute_with_retry to handle transient transport blips.
     """
 
     async def save_plan(self, session_id: str, plan: ResearchPlan) -> None:
@@ -30,8 +31,8 @@ class PersistenceService:
                 "sub_question_count": len(plan.sub_questions),
             }
             # ON CONFLICT DO UPDATE is handled gracefully if needed, but session_id is unique
-            await (
-                client.table("research_plans").upsert(plan_data, on_conflict="session_id").execute()
+            await execute_with_retry(
+                lambda: client.table("research_plans").upsert(plan_data, on_conflict="session_id").execute()
             )
 
             # 2. Save the initial tasks
@@ -47,7 +48,9 @@ class PersistenceService:
                 for sq in plan.sub_questions
             ]
             if tasks_data:
-                await client.table("research_tasks").insert(tasks_data).execute()
+                await execute_with_retry(
+                    lambda: client.table("research_tasks").insert(tasks_data).execute()
+                )
 
             logger.info("Saved research plan and tasks", session_id=session_id)
         except Exception as e:
@@ -78,8 +81,8 @@ class PersistenceService:
             ]
 
             # Upsert using ON CONFLICT (session_id, url) deduplication
-            await (
-                client.table("sources").upsert(sources_data, on_conflict="session_id,url").execute()
+            await execute_with_retry(
+                lambda: client.table("sources").upsert(sources_data, on_conflict="session_id,url").execute()
             )
 
             logger.info("Saved sources", session_id=session_id, count=len(sources))
@@ -106,7 +109,9 @@ class PersistenceService:
                 for e in evidence_items
             ]
 
-            await client.table("evidence").upsert(evidence_data, on_conflict="id").execute()
+            await execute_with_retry(
+                lambda: client.table("evidence").upsert(evidence_data, on_conflict="id").execute()
+            )
 
             logger.info("Saved evidence", session_id=session_id, count=len(evidence_items))
         except Exception as e:
@@ -129,7 +134,9 @@ class PersistenceService:
                 for c in claims
             ]
 
-            await client.table("claims").upsert(claims_data, on_conflict="id").execute()
+            await execute_with_retry(
+                lambda: client.table("claims").upsert(claims_data, on_conflict="id").execute()
+            )
 
             # Save claim_evidence links
             claim_evidence_data = []
@@ -143,8 +150,8 @@ class PersistenceService:
                     )
 
             if claim_evidence_data:
-                await (
-                    client.table("claim_evidence")
+                await execute_with_retry(
+                    lambda: client.table("claim_evidence")
                     .upsert(claim_evidence_data, on_conflict="claim_id,evidence_id")
                     .execute()
                 )
@@ -163,10 +170,10 @@ class PersistenceService:
         try:
             # Update claims status
             for c in result.claims:
-                await (
-                    client.table("claims")
-                    .update({"status": c.verification_status})
-                    .eq("id", str(c.id))
+                await execute_with_retry(
+                    lambda claim=c: client.table("claims")
+                    .update({"status": claim.verification_status})
+                    .eq("id", str(claim.id))
                     .execute()
                 )
 
@@ -183,7 +190,9 @@ class PersistenceService:
             ]
 
             if critic_data:
-                await client.table("critic_results").insert(critic_data).execute()
+                await execute_with_retry(
+                    lambda: client.table("critic_results").insert(critic_data).execute()
+                )
 
             logger.info("Saved critic results", session_id=session_id, count=len(result.claims))
         except Exception as e:
@@ -203,8 +212,8 @@ class PersistenceService:
     ) -> None:
         client = get_service_client()
         try:
-            await (
-                client.table("agent_runs")
+            await execute_with_retry(
+                lambda: client.table("agent_runs")
                 .insert(
                     {
                         "session_id": session_id,

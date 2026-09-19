@@ -25,7 +25,7 @@ from uuid import UUID
 import structlog
 
 from app.core.config import settings
-from app.core.database import get_service_client
+from app.core.database import execute_with_retry, get_service_client
 from app.core.exceptions import (
     MaxSessionsReachedError,
     ResearchNotFoundError,
@@ -101,9 +101,9 @@ class ResearchService:
         """
         client = get_service_client()
 
-        # Check active session count for this user
-        active_count_result = (
-            await client.table("research_sessions")
+        # Check active session count for this user with retry for transient network drops
+        active_count_result = await execute_with_retry(
+            lambda: client.table("research_sessions")
             .select("id", count="exact")
             .eq("user_id", str(user_id))
             .in_("status", ["pending", "planning", "researching", "verifying", "writing"])
@@ -116,8 +116,8 @@ class ResearchService:
 
         # Check idempotency key if provided
         if idempotency_key:
-            existing = (
-                await client.table("research_sessions")
+            existing = await execute_with_retry(
+                lambda: client.table("research_sessions")
                 .select("id, status")
                 .eq("user_id", str(user_id))
                 .eq("idempotency_key", idempotency_key)
@@ -145,7 +145,9 @@ class ResearchService:
         if idempotency_key:
             row["idempotency_key"] = idempotency_key
 
-        result = await client.table("research_sessions").insert(row).execute()
+        result = await execute_with_retry(
+            lambda: client.table("research_sessions").insert(row).execute()
+        )
         data = result.data[0]
 
         logger.info("research_session_created", session_id=str(session_id), user_id=str(user_id))
@@ -191,29 +193,26 @@ class ResearchService:
             await self._update_session_status(session_id, "planning")
             await event_bus.publish(str(session_id), "status_update", {"status": "planning"})
 
-            # Run LangGraph streaming
+            # Run LangGraph streaming with both updates (for progress notifications) and values (for final cumulative state)
             final_state = state
-            async for s in research_graph.astream(state, stream_mode="updates"):
-                node_name = list(s.keys())[0]
-                # Merge state manually or let graph do it. `astream` returns partials,
-                # but we can just use it to track progress. We'll get the final state later.
-
-                if node_name == "plan_research":
-                    await self._update_session_status(session_id, "researching")
-                    await event_bus.publish(
-                        str(session_id), "status_update", {"status": "researching"}
-                    )
-                elif node_name == "extract_evidence":
-                    await self._update_session_status(session_id, "verifying")
-                    await event_bus.publish(
-                        str(session_id), "status_update", {"status": "verifying"}
-                    )
-                elif node_name == "critic_verify":
-                    await self._update_session_status(session_id, "writing")
-                    await event_bus.publish(str(session_id), "status_update", {"status": "writing"})
-
-            # Graph finished, get final state
-            final_state = await research_graph.ainvoke(state)
+            async for mode, chunk in research_graph.astream(state, stream_mode=["updates", "values"]):
+                if mode == "values":
+                    final_state = chunk
+                elif mode == "updates":
+                    node_name = list(chunk.keys())[0]
+                    if node_name == "plan_research":
+                        await self._update_session_status(session_id, "researching")
+                        await event_bus.publish(
+                            str(session_id), "status_update", {"status": "researching"}
+                        )
+                    elif node_name == "extract_evidence":
+                        await self._update_session_status(session_id, "verifying")
+                        await event_bus.publish(
+                            str(session_id), "status_update", {"status": "verifying"}
+                        )
+                    elif node_name == "critic_verify":
+                        await self._update_session_status(session_id, "writing")
+                        await event_bus.publish(str(session_id), "status_update", {"status": "writing"})
 
             # Save report to DB
             client = get_service_client()
@@ -239,8 +238,8 @@ class ResearchService:
                     sources=final_state.get("sources", []),
                     evidence_items=final_state.get("evidence_items", []),
                 )
-                await (
-                    client.table("reports")
+                await execute_with_retry(
+                    lambda: client.table("reports")
                     .insert(
                         {
                             "id": report_id,
@@ -260,8 +259,8 @@ class ResearchService:
                 )
 
             # Update session
-            await (
-                client.table("research_sessions")
+            await execute_with_retry(
+                lambda: client.table("research_sessions")
                 .update(
                     {
                         "status": "completed",
@@ -302,8 +301,8 @@ class ResearchService:
             ResearchNotFoundError: If not found or belongs to another user.
         """
         client = get_service_client()
-        result = (
-            await client.table("research_sessions")
+        result = await execute_with_retry(
+            lambda: client.table("research_sessions")
             .select("*")
             .eq("id", str(session_id))
             .eq("user_id", str(user_id))
@@ -348,7 +347,7 @@ class ResearchService:
         offset = (page - 1) * page_size
         query = query.range(offset, offset + page_size - 1)
 
-        result = await query.execute()
+        result = await execute_with_retry(lambda: query.execute())
         sessions = [self._row_to_response(row) for row in (result.data or [])]
         total = result.count or 0
 
@@ -381,8 +380,8 @@ class ResearchService:
             if task and not task.done():
                 task.cancel()
 
-            await (
-                client.table("research_sessions")
+            await execute_with_retry(
+                lambda: client.table("research_sessions")
                 .update({"status": "cancelled", "updated_at": now})
                 .eq("id", str(session_id))
                 .execute()
@@ -392,8 +391,8 @@ class ResearchService:
             return ResearchSessionResponse(**session_dict)
         else:
             # Soft delete
-            await (
-                client.table("research_sessions")
+            await execute_with_retry(
+                lambda: client.table("research_sessions")
                 .update({"deleted_at": now, "updated_at": now})
                 .eq("id", str(session_id))
                 .execute()
@@ -416,8 +415,8 @@ class ResearchService:
         if failure_reason:
             update_data["failure_reason"] = failure_reason
 
-        await (
-            client.table("research_sessions")
+        await execute_with_retry(
+            lambda: client.table("research_sessions")
             .update(update_data)
             .eq("id", str(session_id))
             .execute()
