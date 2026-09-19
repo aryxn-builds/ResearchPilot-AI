@@ -1,38 +1,161 @@
-# ResearchPilot AI
-
-> **Current Status: Specification Frozen — Ready for MVP Development. No application code exists yet.**
-
-An autonomous multi-agent research platform that accepts a complex question, investigates it using parallel AI agents across web and academic sources, verifies every claim, and delivers a structured, citation-backed report.
+<div align="center">
+  <h1>🚀 ResearchPilot AI</h1>
+  <p><b>An autonomous multi-agent research platform for structured, verifiable, citation-backed intelligence.</b></p>
+  
+  [![Status](https://img.shields.io/badge/Status-MVP_Ready-blue.svg)]()
+  [![Backend](https://img.shields.io/badge/Backend-FastAPI-009688.svg?logo=fastapi)]()
+  [![Frontend](https://img.shields.io/badge/Frontend-Next.js-000000.svg?logo=next.js)]()
+  [![AI](https://img.shields.io/badge/AI-LangGraph-FF9900.svg)]()
+  [![Database](https://img.shields.io/badge/Database-Supabase-3ECF8E.svg?logo=supabase)]()
+</div>
 
 ---
 
-## Vision
+## 🌟 Vision
 
 Manual research is broken. Synthesizing information from multiple sources, verifying claims, tracing citations, and composing a coherent report takes hours. Most AI tools paper over this problem with faster hallucinations.
 
-ResearchPilot AI treats research as a **structured, verifiable process**. Every claim is grounded in evidence. Every evidence item is traceable to a source. Every source is ranked for credibility. A dedicated Critic Agent challenges every claim before it reaches the final report.
+ResearchPilot AI treats research as a **structured, verifiable process**. 
+- 🎯 **Grounded Claims:** Every claim is grounded in evidence.
+- 🔗 **Traceable Sources:** Every evidence item is traceable to a source.
+- ⚖️ **Credibility Ranking:** Every source is ranked for credibility.
+- 🛡️ **Critical Verification:** A dedicated Critic Agent challenges every claim before it reaches the final report.
 
 The goal is not faster research. It is **more trustworthy research**.
 
 ---
 
-## Current Status
+## 🏗️ Architecture & Workflow
 
-```
-Phase 0: Planning / Architecture — COMPLETED (Specification Frozen)
-Phase 1: MVP Development         — READY TO START
-Phase 2: P1 Features             — NOT STARTED
-Phase 3: Production Hardening    — NOT STARTED
+ResearchPilot AI is orchestrated by LangGraph, routing dynamic tasks to specialized AI agents.
+
+### System Architecture
+
+```mermaid
+graph TD
+    %% Core Entities
+    User((👤 User))
+    
+    subgraph Frontend [Next.js Frontend]
+        UI[Web UI]
+        AuthUI[Authentication]
+    end
+    
+    subgraph Backend [FastAPI Backend]
+        API[REST API & SSE]
+        Auth[Auth Middleware]
+    end
+    
+    subgraph MultiAgentSystem [LangGraph Research System]
+        Planner[🧠 Planner Agent]
+        WebRes[🌐 Web Research Agent]
+        AcadRes[📚 Academic Agent]
+        Ranker[⭐ Source Ranker]
+        Extractor[✂️ Evidence Extractor]
+        Synth[🧩 Synthesis Agent]
+        Critic[⚖️ Critic Agent]
+        Writer[📝 Writer Agent]
+    end
+    
+    subgraph Infrastructure [Data & External Services]
+        Supabase[(Supabase PostgreSQL)]
+        Tavily[Tavily Search API]
+        LLM[LLM Routers: Gemini / Groq / OpenRouter]
+    end
+
+    %% Flow
+    User -->|Inputs Query| UI
+    UI -->|API Request| API
+    AuthUI -->|Auth| Supabase
+    API -->|Triggers| Planner
+    
+    Planner -->|Decomposes Queries| WebRes
+    Planner -->|Decomposes Queries| AcadRes
+    
+    WebRes -->|Fetches Data| Tavily
+    AcadRes -->|Fetches Data| Tavily
+    
+    WebRes --> Ranker
+    AcadRes --> Ranker
+    
+    Ranker --> Extractor
+    Extractor --> Synth
+    Synth --> Critic
+    
+    Critic -->|Unverified Claims| Planner
+    Critic -->|Verified Claims| Writer
+    
+    Writer -->|Final Report| API
+    API -->|SSE Stream| UI
+    
+    %% Connections to external
+    MultiAgentSystem -.->|Calls| LLM
+    Backend -.->|Saves State| Supabase
 ```
 
-All documentation in this repository describes the intended system. **No implementation has been built.** Do not assume any code, API, database, or deployment is functional.
+### Research Workflow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Frontend
+    participant Backend
+    participant Agents as LangGraph Agents
+    participant External as LLMs & Tools
+    
+    User->>Frontend: Submits Research Question
+    Frontend->>Backend: POST /api/v1/research
+    Backend-->>Frontend: 202 Accepted (Task ID)
+    
+    Backend->>Agents: Initiate Research Graph
+    activate Agents
+    
+    Agents->>External: Planner Agent breaks down question
+    External-->>Agents: Sub-tasks generated
+    
+    par Parallel Research
+        Agents->>External: Web Research Agent (Tavily)
+        Agents->>External: Academic Research Agent (P1)
+    end
+    External-->>Agents: Raw Sources
+    
+    Agents->>External: Rank Sources & Extract Evidence
+    External-->>Agents: Structured Evidence
+    
+    Agents->>External: Synthesize Claims
+    External-->>Agents: Draft Claims
+    
+    Agents->>External: Critic Agent (Verification)
+    alt Unverified Claims Found
+        External-->>Agents: Failures Detected
+        Agents->>Agents: Trigger Retry Loop (Gather more info)
+    else All Claims Verified
+        External-->>Agents: Pass
+    end
+    
+    Agents->>External: Writer Agent Drafts Report
+    External-->>Agents: Final Markdown Report
+    deactivate Agents
+    
+    Backend->>Supabase: Save Final Report
+    Backend->>Frontend: Stream Complete (SSE)
+    Frontend->>User: Displays Verified Report
+```
 
 ---
 
-## Planned Features
+## ⚡ Current Status & Roadmap
 
-### MVP (Phase 1)
+```text
+✅ Phase 0: Planning / Architecture — COMPLETED (Specification Frozen)
+⏳ Phase 1: MVP Development         — READY TO START
+🗓️ Phase 2: P1 Features             — NOT STARTED
+🗓️ Phase 3: Production Hardening    — NOT STARTED
+```
 
+> **Note:** All documentation in this repository describes the intended system. **No application code has been implemented yet** (apart from infrastructural health checks).
+
+### 🚀 MVP Features (Phase 1)
 - ✦ Research question input with decomposition into sub-questions
 - ✦ Parallel web research via Tavily
 - ✦ Source credibility and relevance ranking
@@ -41,15 +164,14 @@ All documentation in this repository describes the intended system. **No impleme
 - ✦ Critic Agent claim verification
 - ✦ Controlled research retry loop for unverified claims
 - ✦ Citation-backed Markdown report generation
-- ✦ Real-time research progress via Server-Sent Events
+- ✦ Real-time research progress via Server-Sent Events (SSE)
 - ✦ Markdown report export
 - ✦ Research session history
 - ✦ User authentication (email/password)
 
-### Phase 2 (P1 Features)
-
+### 🔮 Future Features (Phase 2)
 - ◦ Academic research via Semantic Scholar and arXiv
-- ◦ Private document upload and RAG-based retrieval
+- ◦ Private document upload and RAG-based retrieval (Qdrant)
 - ◦ PDF report export
 - ◦ Research configuration (depth, source types, iterations)
 - ◦ Agent activity transparency panel
@@ -57,38 +179,7 @@ All documentation in this repository describes the intended system. **No impleme
 
 ---
 
-## Architecture Overview
-
-ResearchPilot AI is a multi-agent system orchestrated by LangGraph.
-
-```
-User → Next.js Frontend → FastAPI Backend → LangGraph Research Graph
-                                                      ↓
-                                              Planner Agent
-                                                      ↓
-                                         Parallel Research Agents
-                                      Web | Academic (P1) | RAG (P1)
-                                                      ↓
-                                              Source Ranking
-                                                      ↓
-                                           Evidence Extraction
-                                                      ↓
-                                            Claim Synthesis
-                                                      ↓
-                                            Critic Verification
-                                                      ↓
-                                    (Retry loop if unverified claims)
-                                                      ↓
-                                            Writer Agent
-                                                      ↓
-                                         Citation-backed Report
-```
-
-Every LLM call goes through a provider router (Gemini → Groq → OpenRouter). No agent is coupled to a specific LLM provider.
-
----
-
-## Technology Stack
+## 🛠️ Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -97,24 +188,21 @@ Every LLM call goes through a provider router (Gemini → Groq → OpenRouter). 
 | **Database** | Supabase (PostgreSQL + Auth) |
 | **Vector DB** | Qdrant Cloud (P1) |
 | **Primary LLM** | Google Gemini API |
-| **Fallback LLM** | Groq API |
-| **Secondary Fallback** | OpenRouter |
+| **Fallback LLMs**| Groq API, OpenRouter |
 | **Web Research** | Tavily |
-| **Academic Research** | Semantic Scholar, arXiv (P1) |
-| **Observability** | Langfuse |
-| **Frontend Deploy** | Vercel |
-| **Backend Deploy** | TBD — Railway recommended (see ARCHITECTURE.md ADL-007) |
-| **CI/CD** | GitHub Actions |
-| **Containerization** | Docker |
+| **Academic** | Semantic Scholar, arXiv (P1) |
+| **Observability**| Langfuse |
+| **Deployments**  | Vercel (Frontend), Railway (Backend recommended) |
+| **CI/CD & DevOps**| GitHub Actions, Docker |
 
 ---
 
-## Repository Structure
+## 📁 Repository Structure
 
-```
+```text
 ResearchPilot AI/
-├── frontend/          # Next.js frontend (not yet implemented)
-├── backend/           # FastAPI backend (not yet implemented)
+├── frontend/          # Next.js frontend
+├── backend/           # FastAPI backend
 │   ├── app/
 │   │   ├── api/       # HTTP endpoints
 │   │   ├── agents/    # Research agents
@@ -145,229 +233,91 @@ ResearchPilot AI/
 
 ---
 
-## Development Roadmap
-
-### Phase 0 — Planning and Architecture (Completed)
-
-- [x] Product Requirements Document (docs/PRD.md)
-- [x] System Architecture Document (docs/ARCHITECTURE.md)
-- [x] AI Coding Agent Instructions (docs/AGENTS.md)
-- [x] Database Schema Design (docs/DATABASE_SCHEMA.md)
-- [x] API Contract (docs/API_SPEC.md)
-- [x] Design System (docs/DESIGN_SYSTEM.md)
-- [x] User Flows (docs/USER_FLOWS.md)
-- [x] Environment variable template (.env.example)
-- [x] UI/UX Specification (docs/UI_UX_SPEC.md)
-- [x] Architecture Decision Records (docs/decisions/ARCHITECTURE_DECISIONS.md)
-- [x] V1 Specification Freeze (docs/V1_FREEZE.md)
-
-### Phase 1 — MVP Development
-
-- [ ] Backend project setup (FastAPI, LangGraph, Pydantic)
-- [ ] LLM provider abstraction layer (Gemini + Groq + OpenRouter)
-- [ ] Tavily web research tool
-- [ ] Planner Agent
-- [ ] Web Research Agent
-- [ ] Source Ranker
-- [ ] Evidence Extractor
-- [ ] Synthesis Agent
-- [ ] Critic Agent
-- [ ] Writer Agent
-- [ ] LangGraph research graph with controlled loop
-- [ ] Database migrations (Supabase)
-- [ ] FastAPI endpoints (`/research`, `/research/{id}`, `/research/{id}/stream`, `/research/{id}/report`)
-- [ ] SSE streaming for research progress
-- [ ] User authentication (Supabase Auth integration)
-- [ ] Next.js frontend — auth pages
-- [ ] Next.js frontend — research input and progress page
-- [ ] Next.js frontend — report view and export
-- [ ] Next.js frontend — research history
-- [ ] Langfuse observability integration
-- [ ] Unit tests for agents and tools
-- [ ] GitHub Actions CI (lint, typecheck, tests)
-- [ ] Docker deployment
-
-### Phase 2 — P1 Features
-
-- [ ] Academic research agents (Semantic Scholar, arXiv)
-- [ ] Private document upload and processing
-- [ ] Qdrant RAG agent
-- [ ] PDF export
-- [ ] Research configuration UI
-- [ ] Agent activity transparency panel
-
-### Phase 3 — Production Hardening
-
-- [ ] Background job queue (Celery + Redis) to replace asyncio tasks
-- [ ] Horizontal backend scaling
-- [ ] Performance baseline and optimization
-- [ ] Rate limiting enforcement
-- [ ] Security audit
-- [ ] Monitoring and alerting
-
----
-
-## Environment Setup
-
-> **Note:** The application is not yet implemented. These steps will be valid once Phase 1 is complete.
+## ⚙️ Environment Setup
 
 ### Prerequisites
-
 - Python 3.11+
 - Node.js 20+
 - Docker (optional for local database)
 
-### Step 1: Clone the repository
+### Quickstart
 
-```bash
-git clone https://github.com/YOUR_ORG/researchpilot-ai.git
-cd researchpilot-ai
-```
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/YOUR_ORG/researchpilot-ai.git
+   cd researchpilot-ai
+   ```
 
-### Step 2: Configure environment variables
+2. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   *Edit `.env` with your actual API keys. See [`.env.example`](.env.example) for required variables.*
 
-```bash
-cp .env.example .env
-# Edit .env with your actual API keys
-```
+3. **Backend Setup** (After Phase 1)
+   ```bash
+   cd backend
+   uv sync
+   uv run uvicorn app.main:app --reload
+   ```
 
-See [`.env.example`](.env.example) for all required variables and where to obtain them.
-
-The following API keys are required to run the MVP:
-
-| Service | URL | Free Tier |
-|---------|-----|-----------|
-| Google Gemini | https://aistudio.google.com/app/apikey | Yes |
-| Groq | https://console.groq.com/keys | Yes |
-| Tavily | https://tavily.com | Yes |
-| Supabase | https://supabase.com | Yes |
-
-> **Verify current free-tier limits before deployment.**
-
-### Step 3: Backend setup
-
-```bash
-cd backend
-# Commands to be documented after Phase 1 implementation
-```
-
-### Step 4: Frontend setup
-
-```bash
-cd frontend
-# Commands to be documented after Phase 1 implementation
-```
+4. **Frontend Setup** (After Phase 1)
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
 ---
 
-## Free-Tier Strategy
+## 💰 Free-Tier Strategy
 
-ResearchPilot AI is designed to run entirely on free-tier infrastructure during development and early validation.
+ResearchPilot AI is designed to run entirely on free-tier infrastructure during development:
 
 | Service | Free Tier Summary |
 |---------|-------------------|
-| Supabase | 500MB DB, 1GB storage, 50K auth users |
-| Google Gemini | Rate-limited free tier (verify current limits) |
-| Groq | Free tier with rate limits |
-| OpenRouter | Free models available |
-| Tavily | 1,000 credits/month |
-| Qdrant Cloud | 1 cluster, 1GB, 1M vectors (P1) |
-| Langfuse Cloud | Free tier available (verify limits) |
-| Vercel | Generous free tier for Next.js |
-| Railway | Free tier (verify current terms) |
+| **Supabase** | 500MB DB, 1GB storage, 50K auth users |
+| **Google Gemini** | Rate-limited free tier |
+| **Groq / OpenRouter**| Free tier with rate limits / Free models |
+| **Tavily** | 1,000 credits/month |
+| **Qdrant Cloud** | 1 cluster, 1GB, 1M vectors (P1) |
+| **Langfuse Cloud** | Generous free tier |
+| **Vercel / Railway** | Next.js free tier / Starter allowances |
 
-**The free-tier architecture has known limitations:**
-- In-process asyncio tasks are lost on server restart
-- Single backend process limits concurrency
-- Rate limits may constrain burst usage
-
-The architecture is designed to scale beyond free tier without rewrites. See `ARCHITECTURE.md → Scalability`.
+> **Note:** The free-tier architecture has limitations (e.g., single backend process, rate limits). The system is designed to scale beyond free tier without rewrites. See `ARCHITECTURE.md` for Scalability details.
 
 ---
 
-## Security
-
-- All API keys stored as environment variables; never in source code
-- Frontend receives only the Supabase anon key; all other secrets are backend-only
-- Supabase Row-Level Security enforces user data isolation at the database level
-- JWT tokens validated on every protected backend request
-- User research data is isolated and inaccessible to other users
-- Research question inputs are wrapped in structured prompts to mitigate prompt injection
-
-See `ARCHITECTURE.md → Security Architecture` for full details.
-
----
-
-## Testing Strategy
-
-- **Unit tests:** Every agent, tool, and LLM router component has unit tests with mocked external services
-- **Integration tests:** Optional; use a test Supabase database; not run in CI by default
-- **No fabricated test results:** Tests are either passing or failing; no invented metrics
-
-See `AGENTS.md → Testing Rules` for the testing policy enforced on all contributors.
-
----
-
-## Deployment Strategy
-
-- **Frontend:** Vercel — automatic deployment on merge to `main`
-- **Backend:** TBD (Railway recommended) — Docker container deployed via GitHub Actions
-- **Database:** Supabase Cloud — no self-hosting for MVP
-- **CI/CD:** GitHub Actions — lint, typecheck, unit tests on every PR
-
-## Production Health Check
+## 🩺 Production Health Check
 
 ResearchPilot AI provides two production-safe health monitoring endpoints:
 
-- **Liveness Probe (`GET /api/v1/health`)**:
-  - Lightweight process check used by load balancers and orchestrators.
-  - Returns `HTTP 200` with status, version, and timestamp as long as the Python backend process is alive.
-  - No database queries, no external network calls.
+- 🟢 **Liveness Probe (`GET /api/v1/health`)**:
+  - Lightweight process check used by load balancers. Returns `HTTP 200` as long as the Python backend is alive. No external calls.
 
-- **Deep Health & Supabase Connectivity Probe (`GET /api/v1/health/deep`)**:
-  - Verifies both that the backend is active and that real read-only communication with Supabase PostgreSQL is functional.
-  - Executes a minimal read-only query (`SELECT id FROM research_sessions LIMIT 1`) with bounded timeout (`DATABASE_HEALTH_CHECK_TIMEOUT_SECONDS=5.0`).
-  - Strictly read-only: does **NOT** trigger research pipelines, LLM calls, Tavily searches, or database mutations.
-  - Returns:
-    - **`HTTP 200 OK`** when backend and Supabase are healthy:
-      ```json
-      {
-        "status": "healthy",
-        "backend": "ok",
-        "database": "ok"
-      }
-      ```
-    - **`HTTP 503 Service Unavailable`** if Supabase is unreachable, timed out, or uninitialized:
-      ```json
-      {
-        "status": "unhealthy",
-        "backend": "ok",
-        "database": "unavailable"
-      }
-      ```
-
-### Configuring an External Scheduler / Uptime Monitor
-
-To keep the Render backend warm and verify Supabase connectivity:
-1. Configure an external uptime monitoring service (such as [Better Uptime](https://betteruptime.com), [UptimeRobot](https://uptimerobot.com), or [cron-job.org](https://cron-job.org)).
-2. Set the monitor URL to:
-   ```
-   https://<RENDER-BACKEND-DOMAIN>/api/v1/health/deep
-   ```
-3. **Recommended Interval:** Every **4 to 6 hours** (do not schedule it every few seconds or every minute, which causes unnecessary resource usage).
-4. **Expected Status Code:** `200`.
-5. **Optional Secret:** If `HEALTH_CHECK_SECRET` is defined in the backend environment, include the header:
-   ```
-   Authorization: Bearer <your-health-check-secret>
-   ```
-
-> [!NOTE]
-> **Supabase Keep-Alive & Inactivity Notice**:
-> Periodically pinging `/api/v1/health/deep` verifies connectivity, exercises the database API gateway, and keeps the Render backend awake. However, it does **not** guarantee prevention of provider-side inactivity suspension on Supabase free-tier projects, which is governed strictly by Supabase's project pause policies.
+- 🔵 **Deep Health Probe (`GET /api/v1/health/deep`)**:
+  - Verifies backend activity **and** read-only communication with Supabase PostgreSQL.
+  - Executes a minimal read-only query (`SELECT id FROM research_sessions LIMIT 1`) with a bounded timeout (`5.0s`).
+  - **Does NOT** trigger research pipelines, LLM calls, Tavily searches, or mutations.
+  - Recommended interval for uptime monitors (like Better Uptime): **Every 4 to 6 hours**.
 
 ---
 
-## Documentation Index
+## 🛡️ Security & Testing
+
+- **Security:**
+  - API keys stored securely as environment variables.
+  - Supabase Row-Level Security (RLS) enforces data isolation.
+  - JWT tokens validated on every protected backend request.
+  - Mitigations against prompt injections in place.
+- **Testing:**
+  - Strict requirement for unit tests on every agent, tool, and LLM router.
+  - Integration tests run against isolated test databases.
+  - *No fabricated test results allowed.*
+
+---
+
+## 📚 Documentation Index
 
 | Document | Purpose |
 |----------|---------|
@@ -378,24 +328,20 @@ To keep the Render backend warm and verify Supabase connectivity:
 | [API_SPEC.md](docs/API_SPEC.md) | API contract, endpoints, SSE event format |
 | [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | Color palette, typography, component patterns |
 | [USER_FLOWS.md](docs/USER_FLOWS.md) | User journeys and flow diagrams |
-| [UI_UX_SPEC.md](docs/UI_UX_SPEC.md) | UI/UX specifications and Stitch component plans |
+| [UI_UX_SPEC.md](docs/UI_UX_SPEC.md) | UI/UX specifications and UI component plans |
 | [V1_FREEZE.md](docs/V1_FREEZE.md) | Summary of the V1 specification freeze |
 | [.env.example](.env.example) | Environment variable template with documentation |
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-This project is in the planning phase. Before writing any code:
-
+Before writing any code:
 1. Read `AGENTS.md` — it defines the rules for all code contributions.
 2. Read `ARCHITECTURE.md` — it defines what can and cannot be changed.
 3. Read the relevant feature spec in `PRD.md`.
 
-Do not introduce new dependencies, frameworks, or services without updating `ARCHITECTURE.md` and receiving acknowledgment.
+> Do not introduce new dependencies, frameworks, or services without updating `ARCHITECTURE.md` and receiving acknowledgment.
 
 ---
-
-## License
-
-TBD — license to be determined before public launch.
+*License: TBD — to be determined before public launch.*
