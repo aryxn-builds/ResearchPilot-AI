@@ -168,6 +168,17 @@ class Settings(BaseSettings):
     RESEARCH_DEFAULT_MAX_ITERATIONS: int = Field(default=2, ge=1, le=3)
     RESEARCH_MAX_ITERATIONS_HARD_CAP: int = Field(default=3, ge=1, le=3)
     RESEARCH_SESSION_TIMEOUT_SECONDS: int = 300
+    FAST_RESEARCH_TIMEOUT_SECONDS: int = Field(default=65, ge=15, le=180)
+    FAST_LLM_TIMEOUT_SECONDS: int = Field(default=12, ge=2, le=30)
+    FAST_LLM_OUTPUT_TOKENS: int = Field(default=2048, ge=512, le=8192)
+    FAST_SEARCH_CONCURRENCY: int = Field(default=2, ge=1, le=8)
+    FAST_SEARCH_TIMEOUT_SECONDS: int = Field(default=10, ge=2, le=30)
+    FAST_MAX_SOURCES: int = Field(default=6, ge=2, le=8)
+    FAST_SOURCE_CHARS: int = Field(default=2400, ge=400, le=6000)
+    FAST_EVIDENCE_BATCH_SIZE: int = Field(default=4, ge=1, le=8)
+    FAST_MAX_EVIDENCE: int = Field(default=10, ge=2, le=24)
+    FAST_REPORT_WORDS: int = Field(default=350, ge=80, le=1000)
+    LLM_COOLDOWN_SECONDS: int = Field(default=20, ge=1, le=120)
     RESEARCH_MAX_CONCURRENT_SESSIONS_PER_USER: int = 3
     RESEARCH_MAX_SOURCES_PER_TASK: int = 3
     RESEARCH_MAX_SUB_QUESTIONS: int = 8

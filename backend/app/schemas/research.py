@@ -44,6 +44,7 @@ class ResearchConfig(BaseModel):
     Source types are restricted to MVP-allowed values only.
     """
 
+    mode: Literal["deep", "fast", "auto"] = "deep"
     max_iterations: int = Field(
         default=2, ge=1, le=3, description="Max critic retry iterations (1–3)"
     )

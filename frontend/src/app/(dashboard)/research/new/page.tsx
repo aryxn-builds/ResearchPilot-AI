@@ -12,6 +12,7 @@ import { Bot, Loader2 } from 'lucide-react'
 export default function NewResearchPage() {
   const router = useRouter()
   const [topic, setTopic] = useState('')
+  const [mode, setMode] = useState<'deep' | 'fast'>('deep')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,7 +38,8 @@ export default function NewResearchPage() {
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          question: topic
+          question: topic,
+          config: { mode }
         })
       })
 
@@ -97,6 +99,21 @@ export default function NewResearchPage() {
                 required
               />
             </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Research mode</legend>
+              <div className="flex flex-wrap gap-4 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="mode" value="deep" checked={mode === 'deep'}
+                    onChange={() => setMode('deep')} />
+                  Deep Research
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="mode" value="fast" checked={mode === 'fast'}
+                    onChange={() => setMode('fast')} />
+                  Fast Research
+                </label>
+              </div>
+            </fieldset>
           </CardContent>
           <CardFooter className="bg-surface/50 border-t border-border flex justify-end">
             <Button variant="brand" type="submit" disabled={loading || !topic.trim()}>

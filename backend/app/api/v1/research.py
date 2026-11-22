@@ -218,7 +218,7 @@ async def stream_research(
     in Phase 1B when the graph is implemented.
     """
     # Verify session ownership
-    session = await service.get_session(session_id=research_id, user_id=user.id)
+    await service.get_session(session_id=research_id, user_id=user.id)
 
     async def _event_generator() -> AsyncIterator[str]:
         """Yield SSE-formatted events until the session completes."""
@@ -232,13 +232,20 @@ async def stream_research(
             # Send initial status event
             yield _sse_event(
                 event="status_update",
-                data={"research_id": str(research_id), "status": session.status},
+                data={"research_id": str(research_id), "status": session.status,
+                      "mode": session.config.get("mode", "deep"),
+                      "created_at": session.created_at.isoformat()},
             )
 
             # If already in terminal state, close immediately
             if session.status in terminal_states:
                 yield _sse_event(
-                    event="done", data={"research_id": str(research_id), "status": session.status}
+                    event="done", data={"research_id": str(research_id), "status": session.status,
+                                        "failure_reason": session.failure_reason,
+                                        "elapsed_seconds": (
+                                            (session.completed_at - session.created_at).total_seconds()
+                                            if session.completed_at else None
+                                        )}
                 )
                 return
 

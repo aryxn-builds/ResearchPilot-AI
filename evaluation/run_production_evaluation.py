@@ -7,15 +7,16 @@ pipeline, measures all required metrics directly from runtime timestamps and
 persisted Supabase tables, and exports machine-readable results.
 """
 
+import argparse
 import asyncio
 import json
+import math
 import os
 import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
 
 import httpx
 
@@ -27,8 +28,7 @@ from app.core.config import settings
 from app.core.database import get_service_client, init_supabase_clients
 
 DATASET_PATH = Path(__file__).resolve().parent / "datasets" / "eval_10_queries.json"
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
-API_BASE = "http://127.0.0.1:8000/api/v1"
+API_BASE = os.environ.get("EVAL_API_BASE", "http://127.0.0.1:8000/api/v1")
 
 # LLM Pricing Constants (per 1,000,000 tokens)
 # Gemini 2.0 Flash / Flash-Lite: $0.075 / 1M input, $0.30 / 1M output
@@ -47,36 +47,13 @@ CITATION_MARKER_REGEX = re.compile(r"\[(\d+)\]")
 
 async def get_auth_token(client: httpx.AsyncClient) -> tuple[str, str]:
     """Authenticate QA user against Supabase Auth to obtain a valid access token."""
-    email = "eval_production_qa@example.com"
-    password = "Password123!"
-
+    email = os.environ["EVAL_QA_EMAIL"]
+    password = os.environ["EVAL_QA_PASSWORD"]
     res = await client.post(
         f"{settings.SUPABASE_URL}/auth/v1/token?grant_type=password",
         headers={"apikey": settings.SUPABASE_ANON_KEY},
         json={"email": email, "password": password},
     )
-
-    if res.status_code != 200:
-        # If user doesn't exist, create via admin API
-        admin_res = await client.post(
-            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
-            headers={
-                "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-            },
-            json={
-                "email": email,
-                "password": password,
-                "email_confirm": True,
-                "user_metadata": {"full_name": "Evaluation Runner QA"},
-            },
-        )
-        # Now sign in
-        res = await client.post(
-            f"{settings.SUPABASE_URL}/auth/v1/token?grant_type=password",
-            headers={"apikey": settings.SUPABASE_ANON_KEY},
-            json={"email": email, "password": password},
-        )
 
     res.raise_for_status()
     data = res.json()
@@ -107,6 +84,7 @@ async def execute_query(
     eval_item: dict,
     run_idx: int,
     total_runs: int,
+    mode: str = "deep",
 ) -> dict:
     """Execute a single query through the live ResearchPilot API and collect metrics."""
     eval_id = eval_item["id"]
@@ -122,14 +100,14 @@ async def execute_query(
     post_res = await client.post(
         f"{API_BASE}/research",
         headers={"Authorization": f"Bearer {token}"},
-        json={"question": query_text, "config": {}},
+        json={"question": query_text, "config": {"mode": mode}},
         timeout=30.0,
     )
 
     if post_res.status_code not in (200, 201, 202):
         t1 = time.perf_counter()
         end_iso = datetime.now(timezone.utc).isoformat()
-        print(f"    FAILED at submission: HTTP {post_res.status_code} - {post_res.text}")
+        print(f"    FAILED at submission: HTTP {post_res.status_code}")
         return {
             "evaluation_id": eval_id,
             "category": category,
@@ -139,7 +117,7 @@ async def execute_query(
             "duration_seconds": round(t1 - t0, 3),
             "status": "failed",
             "failure_stage": "api_submission",
-            "error": post_res.text,
+            "error": f"HTTP {post_res.status_code}",
             "session_id": None,
         }
 
@@ -170,10 +148,10 @@ async def execute_query(
                 data = body.get("data", body)
                 final_status = data.get("status", "pending")
                 failure_reason = data.get("failure_reason")
-                if final_status in ("completed", "failed"):
+                if final_status in ("completed", "failed", "cancelled"):
                     break
-        except Exception as e:
-            print(f"    Polling warning: {e}")
+        except httpx.HTTPError as e:
+            print(f"    Polling warning: {type(e).__name__}")
 
     t1 = time.perf_counter()
     end_iso = datetime.now(timezone.utc).isoformat()
@@ -198,11 +176,6 @@ async def execute_query(
 
     # Cross-validate and pull detailed data from Supabase
     sb = get_service_client()
-
-    # 1. Research Session
-    session_row = (
-        await sb.table("research_sessions").select("*").eq("id", session_id).execute()
-    ).data[0]
 
     # 2. Research Plan & Tasks
     plan_rows = (
@@ -488,6 +461,7 @@ def compute_summary(runs: list[dict]) -> dict:
         return {
             "total": sum(vals),
             "mean": round(statistics.mean(vals), 2),
+            "p90": round(sorted(vals)[math.ceil(0.9 * len(vals)) - 1], 3),
             "median": round(statistics.median(vals), 2),
             "min": round(min(vals), 2),
             "max": round(max(vals), 2),
@@ -562,6 +536,13 @@ def compute_summary(runs: list[dict]) -> dict:
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="Run the preserved research benchmark against a QA deployment.")
+    parser.add_argument("--mode", choices=("fast", "deep"), required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args()
+    output_dir = args.output_dir / args.mode
+    output_dir.mkdir(parents=True, exist_ok=False)
+
     print("==================================================================")
     print(" ResearchPilot AI — Production Metrics & Evaluation Suite")
     print("==================================================================")
@@ -575,21 +556,24 @@ async def main():
 
     print(f"Loaded {len(queries)} evaluation queries from {DATASET_PATH.name}")
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # 3. Authenticate
     async with httpx.AsyncClient(timeout=30.0) as client:
         print("Authenticating QA user with Supabase...")
-        token, user_id = await get_auth_token(client)
-        print(f"Authenticated successfully! User ID: {user_id}")
+        token, _ = await get_auth_token(client)
 
         runs_data = []
         for idx, item in enumerate(queries, 1):
-            run_result = await execute_query(client, token, item, idx, len(queries))
+            try:
+                run_result = await execute_query(client, token, item, idx, len(queries), args.mode)
+            except (httpx.HTTPError, ValueError, IndexError) as exc:
+                run_result = {"evaluation_id": item["id"], "status": "failed",
+                              "failure_reason": type(exc).__name__}
+
             runs_data.append(run_result)
 
             # Persist intermediate results
-            with open(RESULTS_DIR / "runs.json", "w", encoding="utf-8") as f:
+            with open(output_dir / "runs.json", "w", encoding="utf-8") as f:
                 json.dump(runs_data, f, indent=2)
 
             if idx < len(queries):
@@ -599,13 +583,13 @@ async def main():
         # 4. Compute overall statistics
         summary = compute_summary(runs_data)
 
-        with open(RESULTS_DIR / "summary.json", "w", encoding="utf-8") as f:
+        with open(output_dir / "summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
 
         print("\n==================================================================")
         print(" Evaluation Completed Successfully!")
-        print(f" Raw runs saved to: {RESULTS_DIR / 'runs.json'}")
-        print(f" Summary saved to:  {RESULTS_DIR / 'summary.json'}")
+        print(f" Raw runs saved to: {output_dir / 'runs.json'}")
+        print(f" Summary saved to:  {output_dir / 'summary.json'}")
         print("==================================================================")
 
 

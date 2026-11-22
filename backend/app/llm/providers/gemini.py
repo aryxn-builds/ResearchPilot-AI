@@ -12,6 +12,6 @@ def get_gemini_model() -> ChatGoogleGenerativeAI:
         model=settings.GEMINI_MODEL,
         api_key=SecretStr(settings.GEMINI_API_KEY),
         temperature=0.0,
-        max_retries=settings.LLM_RETRY_ATTEMPTS,
+        max_retries=1,
         timeout=settings.LLM_TIMEOUT_SECONDS,
     )

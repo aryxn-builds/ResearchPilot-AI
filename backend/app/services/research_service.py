@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import aclosing
 from datetime import UTC, datetime
+from time import perf_counter
 from uuid import UUID
 
 import structlog
@@ -30,6 +32,7 @@ from app.core.exceptions import (
     MaxSessionsReachedError,
     ResearchNotFoundError,
 )
+from app.core.research_mode import fast_research, research_session, resolve_mode
 from app.graph.research_graph import research_graph
 from app.graph.state import ResearchState
 from app.schemas.research import ResearchConfig, ResearchSessionResponse, ResearchStatus
@@ -136,7 +139,7 @@ class ResearchService:
             "user_id": str(user_id),
             "research_question": question,
             "status": "pending",
-            "config": config.model_dump(),
+            "config": {**config.model_dump(), "mode": resolve_mode(question, config.mode)},
             "iteration_count": 0,
             "created_at": now,
             "updated_at": now,
@@ -164,6 +167,8 @@ class ResearchService:
             session_id: The session to run research for.
             user_id: The owning user.
         """
+        if str(session_id) in _active_tasks:
+            return
         task = asyncio.create_task(
             self._run_research_graph(session_id, user_id),
             name=f"research-{session_id}",
@@ -174,118 +179,139 @@ class ResearchService:
 
     async def _run_research_graph(self, session_id: UUID, user_id: UUID) -> None:
         """Execute the LangGraph research pipeline for a session."""
+        started = perf_counter()
+        mode_token = fast_research.set(False)
+        session_token = research_session.set(str(session_id))
         try:
             session = await self.get_session(session_id, user_id)
-
-            # Initial state
-            state: ResearchState = {
-                "session_id": str(session_id),
-                "research_question": session.question,
-                "research_plan": None,
-                "sources": [],
-                "evidence_items": [],
-                "claims": [],
-                "critic_result": None,
-                "critic_iterations": 0,
-                "report": None,
-            }
-
-            await self._update_session_status(session_id, "planning")
-            await event_bus.publish(str(session_id), "status_update", {"status": "planning"})
-
-            # Run LangGraph streaming with both updates (for progress notifications) and values (for final cumulative state)
-            final_state = state
-            async for mode, chunk in research_graph.astream(state, stream_mode=["updates", "values"]):
-                if mode == "values":
-                    final_state = chunk
-                elif mode == "updates":
-                    node_name = list(chunk.keys())[0]
-                    if node_name == "plan_research":
-                        await self._update_session_status(session_id, "researching")
-                        await event_bus.publish(
-                            str(session_id), "status_update", {"status": "researching"}
-                        )
-                    elif node_name == "extract_evidence":
-                        await self._update_session_status(session_id, "verifying")
-                        await event_bus.publish(
-                            str(session_id), "status_update", {"status": "verifying"}
-                        )
-                    elif node_name == "critic_verify":
-                        await self._update_session_status(session_id, "writing")
-                        await event_bus.publish(str(session_id), "status_update", {"status": "writing"})
-
-            # Save report to DB
-            client = get_service_client()
-            report_id = str(uuid.uuid4())
-            now = datetime.now(tz=UTC).isoformat()
-
-            # Check verified claims
-            verified_count = 0
-            if final_state.get("critic_result"):
-                verified_count = len(
-                    [
-                        c
-                        for c in final_state["critic_result"].claims
-                        if c.verification_status == "verified"
-                    ]
-                )
-
-            report_obj = final_state.get("report")
-            if report_obj:
-                from app.agents.writer import sanitize_report
-                sanitized_report = sanitize_report(
-                    report_obj,
-                    sources=final_state.get("sources", []),
-                    evidence_items=final_state.get("evidence_items", []),
-                )
-                await execute_with_retry(
-                    lambda: client.table("reports")
-                    .insert(
-                        {
-                            "id": report_id,
-                            "session_id": str(session_id),
-                            "user_id": str(user_id),
-                            "content_markdown": sanitized_report.markdown,
-                            "citation_map": {c.marker: c.source_id for c in sanitized_report.citation_map},
-                            "total_citations": sanitized_report.total_citations,
-                            "word_count": sanitized_report.word_count,
-                            "section_count": sanitized_report.section_count,
-                            "generated_at": now,
-                            "created_at": now,
-                            "updated_at": now,
-                        }
-                    )
-                    .execute()
-                )
-
-            # Update session
-            await execute_with_retry(
-                lambda: client.table("research_sessions")
-                .update(
-                    {
-                        "status": "completed",
-                        "completed_at": now,
-                        "updated_at": now,
-                        "iteration_count": final_state.get("critic_iterations", 0),
-                        "total_claims": len(final_state.get("claims", [])),
-                        "verified_claims": verified_count,
-                    }
-                )
-                .eq("id", str(session_id))
-                .execute()
-            )
-
-            await event_bus.publish(str(session_id), "done", {"status": "completed"})
-
+            fast = resolve_mode(session.question, session.config.get("mode", "deep")) == "fast"
+            fast_research.set(fast)
+            timeout = settings.FAST_RESEARCH_TIMEOUT_SECONDS if fast else settings.RESEARCH_SESSION_TIMEOUT_SECONDS
+            async with asyncio.timeout(timeout):
+                await self._execute_pipeline(session, session_id, user_id)
         except asyncio.CancelledError:
             logger.info("Research task cancelled", session_id=str(session_id))
-            await event_bus.publish(str(session_id), "error", {"message": "Task cancelled"})
-        except Exception as e:
-            logger.error("Research graph failed", session_id=str(session_id), error=str(e))
-            await self._update_session_status(session_id, "failed", str(e))
-            await event_bus.publish(
-                str(session_id), "error", {"message": "Research pipeline failed"}
+            await event_bus.publish(str(session_id), "done", {"status": "cancelled"})
+        except Exception as error:
+            reason = ("Research exceeded its time limit." if isinstance(error, TimeoutError)
+                      else "Research could not produce or save a complete report.")
+            logger.error("Research graph failed", session_id=str(session_id), error_type=type(error).__name__)
+            try:
+                await self._update_session_status(session_id, "failed", reason)
+            finally:
+                await event_bus.publish(str(session_id), "done", {
+                    "status": "failed", "failure_reason": reason,
+                })
+        finally:
+            logger.info("research_pipeline_duration", session_id=str(session_id),
+                        fast=fast_research.get(), duration_ms=round((perf_counter() - started) * 1000, 2))
+            fast_research.reset(mode_token)
+            research_session.reset(session_token)
+
+    async def _execute_pipeline(
+        self, session: ResearchSessionResponse, session_id: UUID, user_id: UUID
+    ) -> None:
+        """Stream a single graph execution and persist the completed report."""
+        # Initial state
+        state: ResearchState = {
+            "session_id": str(session_id),
+            "research_question": session.question,
+            "research_plan": None,
+            "sources": [],
+            "evidence_items": [],
+            "claims": [],
+            "critic_result": None,
+            "critic_iterations": 0,
+            "report": None,
+        }
+
+        await self._update_session_status(session_id, "planning")
+        await event_bus.publish(str(session_id), "status_update", {"status": "planning"})
+
+        # Capture stage transitions once, even when fan-out yields several updates.
+        status_by_node = {"plan_research": "researching", "synthesize_claims": "verifying",
+                          "critic_verify": "writing"}
+        sent_statuses: set[str] = set()
+        final_state = state
+        async with aclosing(research_graph.astream(state, stream_mode=["updates", "values"])) as stream:
+            async for mode, chunk in stream:
+                if mode == "values":
+                    final_state = chunk
+                    continue
+                for node_name in chunk:
+                    phase = status_by_node.get(node_name)
+                    if phase and phase not in sent_statuses:
+                        sent_statuses.add(phase)
+                        await self._update_session_status(session_id, phase)
+                        await event_bus.publish(str(session_id), "status_update", {"status": phase})
+
+        # Save report to DB
+        client = get_service_client()
+        report_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:report"))
+        now = datetime.now(tz=UTC).isoformat()
+
+        # Check verified claims
+        verified_count = 0
+        if final_state.get("critic_result"):
+            verified_count = len(
+                [
+                    c
+                    for c in final_state["critic_result"].claims
+                    if c.verification_status == "verified"
+                ]
             )
+
+        report_obj = final_state.get("report")
+        if not report_obj or not report_obj.markdown.strip():
+            raise ValueError("Graph returned no report")
+        persistence_started = perf_counter()
+        from app.agents.writer import sanitize_report
+        sanitized_report = sanitize_report(
+            report_obj,
+            sources=final_state.get("sources", []),
+            evidence_items=final_state.get("evidence_items", []),
+        )
+        await execute_with_retry(
+            lambda: client.table("reports")
+            .upsert(
+                {
+                    "id": report_id,
+                    "session_id": str(session_id),
+                    "user_id": str(user_id),
+                    "content_markdown": sanitized_report.markdown,
+                    "citation_map": {c.marker: c.source_id for c in sanitized_report.citation_map},
+                    "total_citations": sanitized_report.total_citations,
+                    "word_count": sanitized_report.word_count,
+                    "section_count": sanitized_report.section_count,
+                    "generated_at": now,
+                    "created_at": now,
+                    "updated_at": now,
+                }, on_conflict="session_id"
+            )
+            .execute()
+        )
+
+        # Update session
+        await execute_with_retry(
+            lambda: client.table("research_sessions")
+            .update(
+                {
+                    "status": "completed",
+                    "completed_at": now,
+                    "updated_at": now,
+                    "iteration_count": final_state.get("critic_iterations", 0),
+                    "total_claims": len(final_state.get("claims", [])),
+                    "verified_claims": verified_count,
+                }
+            )
+            .eq("id", str(session_id))
+            .execute()
+        )
+
+        logger.info("research_completion_persistence", session_id=str(session_id),
+                    duration_ms=round((perf_counter() - persistence_started) * 1000, 2))
+        await event_bus.publish(str(session_id), "done", {"status": "completed", "elapsed_seconds":
+            (datetime.now(tz=UTC) - session.created_at).total_seconds()})
 
     async def get_session(self, session_id: UUID, user_id: UUID) -> ResearchSessionResponse:
         """Fetch a research session, enforcing user ownership.

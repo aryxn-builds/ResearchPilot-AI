@@ -6,6 +6,7 @@ import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from app.core.research_mode import fast_research
 from app.llm.router import LLMRouter
 from app.prompts.synthesis import SYNTHESIS_SYSTEM_PROMPT
 from app.schemas.agent import Claim, Evidence
@@ -56,6 +57,9 @@ class SynthesisAgent:
         human_content = (
             f"Evidence Items:\n<raw_source>\n{json.dumps(evidence_data, indent=2)}\n</raw_source>"
         )
+
+        if fast_research.get():
+            human_content += "\nReturn at most six concise claims. Preserve qualifications and uncertainty."
 
         messages = [
             SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),

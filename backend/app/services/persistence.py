@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from time import perf_counter
+from typing import TypeVar
+
 import structlog
 
 from app.core.database import execute_with_retry, get_service_client
+from app.core.research_mode import fast_research, research_session
 from app.schemas.agent import (
     Claim,
     CriticResult,
@@ -12,6 +17,17 @@ from app.schemas.agent import (
 )
 
 logger = structlog.get_logger(__name__)
+T = TypeVar("T")
+
+
+async def _timed_write(operation: Callable[[], Awaitable[T]]) -> T:
+    """Time a database operation including transport retries."""
+    started = perf_counter()
+    try:
+        return await execute_with_retry(operation)
+    finally:
+        logger.info("research_db_write", session_id=research_session.get(),
+                    duration_ms=round((perf_counter() - started) * 1000, 2))
 
 
 class PersistenceService:
@@ -31,7 +47,7 @@ class PersistenceService:
                 "sub_question_count": len(plan.sub_questions),
             }
             # ON CONFLICT DO UPDATE is handled gracefully if needed, but session_id is unique
-            await execute_with_retry(
+            await _timed_write(
                 lambda: client.table("research_plans").upsert(plan_data, on_conflict="session_id").execute()
             )
 
@@ -48,12 +64,14 @@ class PersistenceService:
                 for sq in plan.sub_questions
             ]
             if tasks_data:
-                await execute_with_retry(
-                    lambda: client.table("research_tasks").insert(tasks_data).execute()
+                await _timed_write(
+                    lambda: client.table("research_tasks").upsert(tasks_data, on_conflict="id").execute()
                 )
 
             logger.info("Saved research plan and tasks", session_id=session_id)
         except Exception as e:
+            if fast_research.get():
+                raise
             logger.error("Failed to save research plan", session_id=session_id, error=str(e))
 
     async def save_sources(self, session_id: str, sources: list[Source]) -> None:
@@ -81,12 +99,14 @@ class PersistenceService:
             ]
 
             # Upsert using ON CONFLICT (session_id, url) deduplication
-            await execute_with_retry(
+            await _timed_write(
                 lambda: client.table("sources").upsert(sources_data, on_conflict="session_id,url").execute()
             )
 
             logger.info("Saved sources", session_id=session_id, count=len(sources))
         except Exception as e:
+            if fast_research.get():
+                raise
             logger.error("Failed to save sources", session_id=session_id, error=str(e))
 
     async def save_evidence(self, session_id: str, evidence_items: list[Evidence]) -> None:
@@ -109,12 +129,14 @@ class PersistenceService:
                 for e in evidence_items
             ]
 
-            await execute_with_retry(
+            await _timed_write(
                 lambda: client.table("evidence").upsert(evidence_data, on_conflict="id").execute()
             )
 
             logger.info("Saved evidence", session_id=session_id, count=len(evidence_items))
         except Exception as e:
+            if fast_research.get():
+                raise
             logger.error("Failed to save evidence", session_id=session_id, error=str(e))
 
     async def save_claims(self, session_id: str, claims: list[Claim], iteration: int = 1) -> None:
@@ -134,7 +156,7 @@ class PersistenceService:
                 for c in claims
             ]
 
-            await execute_with_retry(
+            await _timed_write(
                 lambda: client.table("claims").upsert(claims_data, on_conflict="id").execute()
             )
 
@@ -150,7 +172,7 @@ class PersistenceService:
                     )
 
             if claim_evidence_data:
-                await execute_with_retry(
+                await _timed_write(
                     lambda: client.table("claim_evidence")
                     .upsert(claim_evidence_data, on_conflict="claim_id,evidence_id")
                     .execute()
@@ -158,6 +180,8 @@ class PersistenceService:
 
             logger.info("Saved claims", session_id=session_id, count=len(claims))
         except Exception as e:
+            if fast_research.get():
+                raise
             logger.error("Failed to save claims", session_id=session_id, error=str(e))
 
     async def save_critic_result(
@@ -169,11 +193,15 @@ class PersistenceService:
         client = get_service_client()
         try:
             # Update claims status
-            for c in result.claims:
-                await execute_with_retry(
-                    lambda claim=c: client.table("claims")
-                    .update({"status": claim.verification_status})
-                    .eq("id", str(claim.id))
+            by_status: dict[str, list[str]] = {}
+            for claim in result.claims:
+                by_status.setdefault(claim.verification_status, []).append(str(claim.id))
+            for status, claim_ids in by_status.items():
+                await _timed_write(
+                    lambda status=status, ids=claim_ids: client.table("claims")
+                    .update({"status": status})
+                    .eq("session_id", session_id)
+                    .in_("id", ids)
                     .execute()
                 )
 
@@ -190,12 +218,14 @@ class PersistenceService:
             ]
 
             if critic_data:
-                await execute_with_retry(
+                await _timed_write(
                     lambda: client.table("critic_results").insert(critic_data).execute()
                 )
 
             logger.info("Saved critic results", session_id=session_id, count=len(result.claims))
         except Exception as e:
+            if fast_research.get():
+                raise
             logger.error("Failed to save critic results", session_id=session_id, error=str(e))
 
     async def save_agent_run(
@@ -212,7 +242,7 @@ class PersistenceService:
     ) -> None:
         client = get_service_client()
         try:
-            await execute_with_retry(
+            await _timed_write(
                 lambda: client.table("agent_runs")
                 .insert(
                     {

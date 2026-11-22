@@ -19,7 +19,19 @@ export default function ActiveResearchPage() {
   const router = useRouter()
   const [events, setEvents] = useState<ProgressEvent[]>([])
   const [isComplete, setIsComplete] = useState(false)
+  const [mode, setMode] = useState<string | null>(null)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const [terminal, setTerminal] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (startedAt === null || terminal) return
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [startedAt, terminal])
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
@@ -48,6 +60,8 @@ export default function ActiveResearchPage() {
         if (!isMounted) return
         try {
           const data = JSON.parse(event.data)
+          if (data.mode) setMode(data.mode)
+          if (data.created_at) setStartedAt(Date.parse(data.created_at))
           setEvents((prev) => [...prev, { status: data.status, agent: 'System', message: `Status updated to ${data.status}` }])
         } catch (err) {
           console.error("Failed to parse SSE status_update data", err)
@@ -58,10 +72,14 @@ export default function ActiveResearchPage() {
         if (!isMounted) return
         try {
           const data = JSON.parse(event.data)
+          setTerminal(true)
+          if (typeof data.elapsed_seconds === 'number') setElapsed(Math.floor(data.elapsed_seconds))
           if (data.status === 'completed') {
             setIsComplete(true)
-            eventSource?.close()
+          } else {
+            setError(data.failure_reason || (data.status === 'cancelled' ? 'Research was cancelled.' : 'Research failed.'))
           }
+          eventSource?.close()
         } catch (err) {
           console.error("Failed to parse SSE done data", err)
         }
@@ -80,6 +98,7 @@ export default function ActiveResearchPage() {
       eventSource.onerror = (err) => {
         console.error("SSE Error:", err)
         if (isMounted) {
+          setTerminal(true)
           setError("Connection to research agent lost.")
           eventSource?.close()
         }
@@ -100,7 +119,8 @@ export default function ActiveResearchPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold font-serif tracking-tight mb-2">Research in Progress</h1>
-        <p className="text-secondary">Your autonomous agent is working. This may take a few minutes.</p>
+        <p className="text-secondary">{mode ? (mode === 'fast' ? 'Fast Research' : 'Deep Research') : 'Research'}
+          {startedAt !== null && Number.isFinite(elapsed) ? ` ? ${elapsed}s elapsed` : ''}</p>
       </div>
 
       <Card>
@@ -114,7 +134,7 @@ export default function ActiveResearchPage() {
               <span className="flex items-center gap-2 text-status-success text-sm font-semibold">
                 <CheckCircle2 className="h-4 w-4" /> Completed
               </span>
-            ) : (
+            ) : terminal ? null : (
               <span className="flex items-center gap-2 text-brand-sage text-sm font-semibold">
                 <Loader2 className="h-4 w-4 animate-spin" /> Processing
               </span>

@@ -19,7 +19,7 @@ def get_openrouter_model() -> ChatOpenAI:
         api_key=SecretStr(settings.OPENROUTER_API_KEY),
         temperature=0.0,
         max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
-        max_retries=settings.LLM_RETRY_ATTEMPTS,
+        max_retries=0,
         timeout=settings.LLM_TIMEOUT_SECONDS,
         default_headers={
             "HTTP-Referer": "https://github.com/ResearchPilot/researchpilot",

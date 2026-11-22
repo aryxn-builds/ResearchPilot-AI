@@ -3,6 +3,7 @@ from __future__ import annotations
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.core.research_mode import fast_research
 from app.llm.router import LLMRouter
 from app.prompts.critic import CRITIC_SYSTEM_PROMPT
 from app.schemas.agent import Claim, CriticResult, Evidence
@@ -68,6 +69,27 @@ class CriticAgent:
         result = await self.llm_router.generate_structured(
             messages, CriticResult, callbacks=callbacks
         )
+
+        if fast_research.get():
+            # Keep authoritative claim IDs and references. Conflicting or omitted
+            # decisions remain unverified rather than being inferred from position.
+            decisions: dict[str, list[Claim]] = {}
+            for decision in result.claims:
+                decisions.setdefault(decision.id, []).append(decision)
+            checked = []
+            for claim in claims:
+                matches = decisions.get(claim.id, [])
+                decision = matches[0] if len(matches) == 1 else None
+                if decision is None or decision.statement != claim.statement:
+                    checked.append(claim.model_copy(update={"verification_status": "unverified"}))
+                    continue
+                status = decision.verification_status
+                if status == "pending" or not claim.evidence_ids:
+                    status = "unverified"
+                checked.append(claim.model_copy(update={
+                    "verification_status": status, "critic_notes": decision.critic_notes,
+                }))
+            return CriticResult(claims=checked)
 
         original_claims_map = {c.statement: c for c in claims}
         

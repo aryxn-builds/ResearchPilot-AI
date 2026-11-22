@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from time import perf_counter
+
+import structlog
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.edges import route_to_extraction, route_to_research, verify_claims_loop
@@ -14,17 +19,37 @@ from app.graph.nodes import (
 )
 from app.graph.state import ResearchState
 
+logger = structlog.get_logger(__name__)
+
+
+def timed_node(node: Callable[..., Awaitable[dict]]) -> Callable[..., Awaitable[dict]]:
+    """Log each node's elapsed time, including waits and writes."""
+    async def run(state: dict, config: RunnableConfig) -> dict:
+        started = perf_counter()
+        outcome = "failed"
+        try:
+            result = await node(state, config)
+            outcome = "success"
+            return result
+        finally:
+            logger.info("research_stage", session_id=state.get("session_id"),
+                        stage=node.__name__, outcome=outcome,
+                        duration_ms=round((perf_counter() - started) * 1000, 2))
+
+    return run
+
+
 # 1. Initialize the StateGraph
 builder = StateGraph(ResearchState)
 
 # 2. Add all nodes
-builder.add_node("plan_research", plan_research)
-builder.add_node("web_research", web_research)
-builder.add_node("rank_sources", rank_sources)
-builder.add_node("extract_evidence", extract_evidence)
-builder.add_node("synthesize_claims", synthesize_claims)
-builder.add_node("critic_verify", critic_verify)
-builder.add_node("write_report", write_report)
+builder.add_node("plan_research", timed_node(plan_research))
+builder.add_node("web_research", timed_node(web_research))
+builder.add_node("rank_sources", timed_node(rank_sources))
+builder.add_node("extract_evidence", timed_node(extract_evidence))
+builder.add_node("synthesize_claims", timed_node(synthesize_claims))
+builder.add_node("critic_verify", timed_node(critic_verify))
+builder.add_node("write_report", timed_node(write_report))
 
 # 3. Define the flow (Edges)
 builder.add_edge(START, "plan_research")

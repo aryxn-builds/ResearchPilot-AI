@@ -191,6 +191,7 @@ All errors use a consistent structure:
 |-------|------|----------|---------|-------------|
 | `question` | string | Yes | — | 10–1,000 characters |
 | `config` | object | No | `{}` | All config fields are optional |
+| `config.mode` | string | No | `"deep"` | `deep`, `fast`, or `auto`. Auto resolves to Fast for narrowly scoped definitions and comparisons; the resolved mode is returned in session config. |
 | `config.max_iterations` | integer | No | `2` | 1–3 |
 | `config.source_types` | array of string | No | `["web"]` | Allowed: `web`, `academic` (P1), `rag` (P1) |
 | `config.max_sources_per_task` | integer | No | `5` | 1–10 |

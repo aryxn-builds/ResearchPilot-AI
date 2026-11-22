@@ -13,6 +13,6 @@ def get_groq_model() -> ChatGroq:
         api_key=SecretStr(settings.GROQ_API_KEY),
         temperature=0.0,
         max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
-        max_retries=settings.LLM_RETRY_ATTEMPTS,
+        max_retries=0,
         timeout=settings.LLM_TIMEOUT_SECONDS,
     )

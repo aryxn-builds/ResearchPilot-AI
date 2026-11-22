@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.core.config import settings
 from app.llm.router import LLMRouter
 from app.prompts.writer import WRITER_SYSTEM_PROMPT
 from app.schemas.agent import CitationEntry, Claim, Evidence, Report, Source
@@ -152,6 +153,40 @@ class WriterAgent:
 
     def __init__(self, llm_router: LLMRouter) -> None:
         self.llm_router = llm_router
+
+    def render_verified(
+        self, claims: list[Claim], sources: list[Source], evidence: list[Evidence]
+    ) -> Report:
+        """Render complete, cited statements from the independent Critic."""
+        markers, _, evidence_sources = build_citation_mappings(sources, evidence)
+        lines = ["## Findings"]
+        words = 0
+        for claim in claims:
+            if claim.verification_status != "verified":
+                continue
+            statement = " ".join(claim.statement.split())
+            if not statement or UUID_PATTERN.search(statement):
+                continue
+            citations = list(dict.fromkeys(
+                markers[source] for eid in claim.evidence_ids
+                if (source := evidence_sources.get(str(eid).lower())) in markers
+            ))
+            count = len(statement.split())
+            if not citations or words + count > settings.FAST_REPORT_WORDS:
+                continue
+            # Treat model text as literal Markdown text, not links or citation markers.
+            statement = re.sub(r"\[\d+\]", "", statement)
+            statement = re.sub(r"([\\`*_{}\[\]()<>#!|])", r"\\\1", statement)
+            lines.append(f"- {statement} {' '.join(citations)}")
+            words += count
+        if not words:
+            raise ValueError("Fast Research found no verified claims with valid citations.")
+        if len(lines) - 1 < len(claims):
+            lines.extend(["", "Only verified findings that fit the report are shown."])
+        return sanitize_report(
+            Report(markdown="\n".join(lines), total_citations=0, word_count=words, section_count=1),
+            sources, evidence,
+        )
 
     async def run(
         self,

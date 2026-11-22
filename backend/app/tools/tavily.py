@@ -7,6 +7,7 @@ import structlog
 from tavily import AsyncTavilyClient
 
 from app.core.config import settings
+from app.core.research_mode import fast_research
 from app.schemas.agent import Source, SubQuestion
 
 logger = structlog.get_logger(__name__)
@@ -37,8 +38,8 @@ class TavilyTool:
             response = await self.client.search(
                 query=sub_question.question,
                 search_depth=settings.TAVILY_SEARCH_DEPTH,
-                max_results=settings.TAVILY_MAX_RESULTS,
-                include_raw_content=True,
+                max_results=settings.FAST_MAX_SOURCES if fast_research.get() else settings.TAVILY_MAX_RESULTS,
+                include_raw_content=not fast_research.get(),
                 include_answer=False,
             )
 
@@ -50,9 +51,12 @@ class TavilyTool:
                     continue
 
                 # Truncate content to roughly the max token limit (approx 4 chars per token)
-                max_chars = settings.RESEARCH_MAX_SOURCE_CONTENT_TOKENS * 4
+                max_chars = (settings.FAST_SOURCE_CHARS if fast_research.get()
+                             else settings.RESEARCH_MAX_SOURCE_CONTENT_TOKENS * 4)
                 if len(content) > max_chars:
-                    content = content[:max_chars] + "... [truncated]"
+                    content = content[:max_chars]
+                    if not fast_research.get():
+                        content += "... [truncated]"
 
                 domain = None
                 try:

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import uuid
+from time import perf_counter
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import structlog
 from langchain_core.runnables import RunnableConfig
 
@@ -12,11 +17,12 @@ from app.agents.synthesis import SynthesisAgent
 from app.agents.web_research import WebResearchAgent
 from app.agents.writer import WriterAgent
 from app.core.config import settings
+from app.core.research_mode import fast_research
 from app.graph.state import ResearchState
 from app.llm.callbacks import AsyncAgentRunCallbackHandler
 from app.llm.observability import get_langfuse_callback
 from app.llm.router import LLMRouter
-from app.schemas.agent import Source, SubQuestion
+from app.schemas.agent import ResearchPlan, Source, SubQuestion
 from app.services.persistence import PersistenceService
 from app.tools.tavily import TavilyTool
 
@@ -65,8 +71,15 @@ def _get_extraction_semaphore() -> asyncio.Semaphore:
 
 async def plan_research(state: ResearchState, config: RunnableConfig) -> dict:
     """Node: Decompose question into a plan."""
-    callbacks = _get_callbacks(state["session_id"], "PlannerAgent")
-    plan = await planner_agent.run(state["research_question"], callbacks=callbacks)
+    if fast_research.get():
+        plan = ResearchPlan(sub_questions=[SubQuestion(
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{state['session_id']}:fast-plan")),
+            question=state["research_question"],
+            research_type="web",
+        )])
+    else:
+        callbacks = _get_callbacks(state["session_id"], "PlannerAgent")
+        plan = await planner_agent.run(state["research_question"], callbacks=callbacks)
     await persistence_service.save_plan(state["session_id"], plan)
     return {"research_plan": plan, "critic_iterations": 0}
 
@@ -83,20 +96,50 @@ async def rank_sources(state: ResearchState, config: RunnableConfig) -> dict:
     """Node: Score and rank all gathered sources."""
     sources = state.get("sources", [])
     session_id = state.get("session_id")
-    import uuid
+
+    if fast_research.get():
+        await source_ranker.run(sources)
+        terms = set(re.findall(r"[a-z0-9]{3,}", state["research_question"].lower()))
+        for source in sources:
+            words = set(re.findall(r"[a-z0-9]{3,}", (source.title + " " + source.content).lower()))
+            source.relevance_score = len(terms & words) / max(1, len(terms))
+        sources = sorted(sources, key=lambda s: (s.relevance_score, s.credibility_score), reverse=True)
 
     # Deduplicate by URL (preferring the first seen to maintain determinism, or just unique URLs)
     seen_urls = set()
     unique_sources = []
+    fingerprints: list[set[tuple[str, ...]]] = []
     for s in sources:
-        if s.url not in seen_urls:
-            seen_urls.add(s.url)
+        key = s.url
+        if fast_research.get():
+            try:
+                parsed = urlsplit(s.url)
+                if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+                    continue
+            except ValueError:
+                continue
+            query = sorted((k, v) for k, v in parse_qsl(parsed.query)
+                           if not k.lower().startswith("utm_") and k.lower() not in {"gclid", "fbclid"})
+            key = urlunsplit(("", parsed.netloc.lower(), parsed.path.rstrip("/"), urlencode(query), ""))
+            words = re.findall(r"\w+", s.content.lower())
+            shingles = set(zip(words, words[1:], words[2:]))
+            if (key in seen_urls or not shingles or any(
+                len(shingles & previous) / len(shingles | previous) >= 0.85
+                for previous in fingerprints
+            )):
+                continue
+            fingerprints.append(shingles)
+        if key not in seen_urls:
+            seen_urls.add(key)
             # Reassign deterministic ID to prevent foreign key violations on retries (Rule A-04)
             s.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{s.url}"))
             unique_sources.append(s)
+            if fast_research.get() and len(unique_sources) >= settings.FAST_MAX_SOURCES:
+                break
 
     # Rank them
-    await source_ranker.run(unique_sources)
+    if not fast_research.get():
+        await source_ranker.run(unique_sources)
 
     # Sort them descending by relevance
     unique_sources.sort(key=lambda s: s.relevance_score, reverse=True)
@@ -120,14 +163,17 @@ async def extract_evidence(state: dict, config: RunnableConfig) -> dict:
     session_id = state.get("session_id", "unknown_session")
     callbacks = _get_callbacks(session_id, "EvidenceExtractor")
 
+    queued_at = perf_counter()
     async with _get_extraction_semaphore():
+        logger.info("research_evidence_queue", session_id=session_id,
+                    wait_ms=round((perf_counter() - queued_at) * 1000, 2))
         evidence_items = await evidence_extractor.run_batch(sub_question, sources, callbacks=callbacks)
-        await asyncio.sleep(0.5)
+        if not fast_research.get():
+            await asyncio.sleep(0.5)
 
-    import uuid
     for ev in evidence_items:
         # Reassign deterministic ID to prevent foreign key violations on retries (Rule A-04)
-        ev.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{ev.source_id}:{ev.snippet[:50]}"))
+        ev.id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{session_id}:{ev.source_id}:{ev.snippet}"))
 
     return {"evidence_items": evidence_items}
 
@@ -136,8 +182,15 @@ async def synthesize_claims(state: ResearchState, config: RunnableConfig) -> dic
     """Node: Synthesize all evidence into claims."""
     evidence_items = state.get("evidence_items", [])
 
+    if fast_research.get():
+        evidence_items = list({item.id: item for item in evidence_items}.values())
+        evidence_items = evidence_items[:settings.FAST_MAX_EVIDENCE]
+        if not evidence_items:
+            raise ValueError("Fast Research found no attributable evidence.")
+
     # Before synthesis, we should persist all evidence extracted during the fan-out
-    await persistence_service.save_evidence(state["session_id"], evidence_items)
+    if not state.get("critic_iterations"):
+        await persistence_service.save_evidence(state["session_id"], evidence_items)
 
     callbacks = _get_callbacks(state["session_id"], "SynthesisAgent")
     claims = await synthesis_agent.run(evidence_items, callbacks=callbacks)
@@ -148,10 +201,18 @@ async def synthesize_claims(state: ResearchState, config: RunnableConfig) -> dic
         # Filter out hallucinated IDs to prevent foreign key violations (Rule A-04)
         claim.evidence_ids = [eid for eid in claim.evidence_ids if str(eid) in valid_evidence_ids]
 
+    if fast_research.get():
+        claims = [claim for claim in claims if claim.evidence_ids][:6]
+        for claim in claims:
+            claim.verification_status = "pending"
+
     iteration = state.get("critic_iterations", 0) + 1
     await persistence_service.save_claims(state["session_id"], claims, iteration)
 
-    return {"claims": claims}
+    update = {"claims": claims}
+    if fast_research.get():
+        update["evidence_items"] = {"overwrite": True, "items": evidence_items}
+    return update
 
 
 async def critic_verify(state: ResearchState, config: RunnableConfig) -> dict:
@@ -182,6 +243,10 @@ async def write_report(state: ResearchState, config: RunnableConfig) -> dict:
     verified_claims = []
     if critic_result:
         verified_claims = [c for c in critic_result.claims if c.verification_status == "verified"]
+
+    if fast_research.get():
+        checked = critic_result.claims if critic_result else []
+        return {"report": writer_agent.render_verified(checked, sources, evidence_items)}
 
     callbacks = _get_callbacks(state["session_id"], "WriterAgent")
     report = await writer_agent.run(

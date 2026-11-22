@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import uuid
+
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.research_mode import fast_research
 from app.llm.router import LLMRouter
 from app.prompts.extractor import EXTRACTOR_SYSTEM_PROMPT
 from app.schemas.agent import Evidence, Source, SubQuestion
@@ -61,10 +63,13 @@ class EvidenceExtractor:
             source_ids=[str(s.id) for s in valid_sources],
         )
 
-        max_chars = settings.RESEARCH_MAX_SOURCE_CONTENT_TOKENS * 4
+        fast = fast_research.get()
+        max_chars = settings.FAST_SOURCE_CHARS if fast else settings.RESEARCH_MAX_SOURCE_CONTENT_TOKENS * 4
+        shown_content: dict[str, str] = {}
         source_sections = []
         for s in valid_sources:
             content = s.content[:max_chars] if len(s.content) > max_chars else s.content
+            shown_content[str(s.id)] = content
             source_sections.append(
                 f'<source id="{s.id}" url="{s.url}">\n<raw_source>\n{content}\n</raw_source>\n</source>'
             )
@@ -74,7 +79,8 @@ class EvidenceExtractor:
             f"Sub-Question: {sub_question.question}\n\n"
             f"Please extract factual, verbatim evidence snippets from the provided sources that directly answer the sub-question.\n"
             f"For each snippet extracted, specify the exact source_id matching the <source id=\"...\"> tag.\n\n"
-            f"Sources:\n" + "\n\n".join(source_sections)
+            + ("Return at most two short verbatim passages per source.\n" if fast else "")
+            + "Sources:\n" + "\n\n".join(source_sections)
         )
 
         messages = [
@@ -90,11 +96,12 @@ class EvidenceExtractor:
             valid_source_map = {str(s.id): s for s in valid_sources}
             evidence_list: list[Evidence] = []
 
+            seen: set[tuple[str, str]] = set()
             for item in result.evidence_items:
                 sid = str(item.source_id).strip()
                 if sid not in valid_source_map:
                     # Fallback: if single source in batch, safely attribute to it
-                    if len(valid_sources) == 1:
+                    if len(valid_sources) == 1 and not fast:
                         sid = str(valid_sources[0].id)
                     else:
                         logger.warning(
@@ -104,8 +111,17 @@ class EvidenceExtractor:
                         )
                         continue
 
+                if fast:
+                    snippet = " ".join(item.snippet.split())
+                    if (not snippet or (sid, snippet) in seen
+                            or snippet not in " ".join(shown_content[sid].split())):
+                        continue
+                    seen.add((sid, snippet))
+                    if len(evidence_list) >= settings.FAST_MAX_EVIDENCE:
+                        break
+
                 # Generate deterministic authoritative domain ID
-                ev_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sub_question.id}:{sid}:{item.snippet[:50]}"))
+                ev_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sub_question.id}:{sid}:{item.snippet}"))
                 evidence = Evidence(
                     id=ev_id,
                     sub_question_id=sub_question.id,
