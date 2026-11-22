@@ -1,0 +1,1 @@
+{"extends":"../tsconfig.json","compilerOptions":{"module":"commonjs","moduleResolution":"node","noEmit":false,"outDir":"../scratch/submission","rootDir":"../src","incremental":false,"isolatedModules":false},"include":["../src/app/api/research/route.ts"],"exclude":["../node_modules"]}

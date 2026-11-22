@@ -1,22 +1,22 @@
 "use client"
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { createClient } from '@/lib/supabase/client'
-import { getApiUrl } from '@/lib/api'
 import { Bot, Loader2 } from 'lucide-react'
 
 export default function NewResearchPage() {
   const router = useRouter()
   const pending = useRef(false)
   const key = useRef<string | null>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
   const [topic, setTopic] = useState('')
   const [mode, setMode] = useState<'deep' | 'fast'>('deep')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (error) errorRef.current?.focus() }, [error])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -29,21 +29,12 @@ export default function NewResearchPage() {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30000)
     try {
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
-
-    if (!session) {
-      router.push('/login')
-      return
-    }
-
-      const response = await fetch(getApiUrl('/research'), {
+      const response = await fetch('/api/research', {
         method: 'POST',
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': key.current,
-          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
           question: topic,
@@ -52,7 +43,9 @@ export default function NewResearchPage() {
       })
 
       if (!response.ok) {
-        throw new Error(response.status === 429 ? 'Research limit reached. Try again later.' : 'Could not start research. Check your connection and try again.')
+        const body = await response.json().catch(() => null)
+        const fields = Array.isArray(body?.fields) ? body.fields.map((field: { field?: string; message?: string }) => `${field.field || 'Question'}: ${field.message || 'Invalid value'}`).join(' ') : ''
+        throw new Error(fields || body?.message || 'Research service is temporarily unavailable. Please retry.')
       }
 
       const data = await response.json()
@@ -61,12 +54,11 @@ export default function NewResearchPage() {
       const researchId = data?.data?.research_id || data?.research_id || data?.id;
       if (typeof researchId !== "string" || !/^[0-9a-f-]{36}$/i.test(researchId)) throw new Error("Invalid session response. Check History before retrying.")
       router.push(`/research/active/${researchId}`)
-    } catch (err: Error | unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('An unexpected error occurred')
-      }
+    } catch (err: unknown) {
+      setError(err instanceof DOMException && err.name === 'AbortError'
+        ? 'The service took too long to respond. Check History before retrying.'
+        : err instanceof TypeError ? 'Unable to connect. Check your connection and retry.'
+        : err instanceof Error ? err.message : 'Research service is temporarily unavailable. Please retry.')
     } finally {
       clearTimeout(timer)
       pending.current = false
@@ -94,7 +86,7 @@ export default function NewResearchPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {error && (
-              <div className="p-3 bg-status-error/10 text-status-error text-sm rounded-md">
+              <div ref={errorRef} role="alert" tabIndex={-1} className="p-3 bg-status-error/10 text-status-error text-sm rounded-md">
                 {error}
               </div>
             )}
@@ -110,35 +102,34 @@ export default function NewResearchPage() {
                 onChange={(e) => { setTopic(e.target.value); key.current = null }}
                 minLength={10}
                 maxLength={1000}
-                disabled={loading}
                 required
               />
             </div>
-            <fieldset className="space-y-2">
+            <fieldset disabled={loading} className="space-y-2">
               <legend className="text-sm font-medium">Research mode</legend>
               <div className="flex flex-wrap gap-4 text-sm">
                 <label className="flex items-center gap-2">
                   <input type="radio" name="mode" value="deep" checked={mode === 'deep'}
-                    onChange={() => setMode('deep')} />
+                    onChange={() => { setMode('deep'); key.current = null }} />
                   Deep Research
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="radio" name="mode" value="fast" checked={mode === 'fast'}
-                    onChange={() => setMode('fast')} />
+                    onChange={() => { setMode('fast'); key.current = null }} />
                   Fast Research
                 </label>
               </div>
             </fieldset>
           </CardContent>
           <CardFooter className="bg-surface/50 border-t border-border flex justify-end">
-            <Button variant="brand" type="submit" disabled={loading || !topic.trim()}>
+            <Button variant="brand" type="submit" disabled={loading || topic.trim().length < 10}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Deploying Agent...
                 </>
               ) : (
-                'Start Research'
+                error ? 'Retry Research' : 'Start Research'
               )}
             </Button>
           </CardFooter>
