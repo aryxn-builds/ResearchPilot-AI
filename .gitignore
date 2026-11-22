@@ -8,6 +8,9 @@
 *.pem
 *.key
 *.cert
+*.p12
+*.pfx
+.aws/
 
 # Python Byte-compiled / Cache / Build
 __pycache__/
@@ -64,6 +67,8 @@ coverage.xml
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.uv-cache/
+.pytest_tmp/
 
 # Node.js & Next.js
 node_modules/
@@ -92,6 +97,9 @@ logs/
 *.jpeg
 *.jpg
 .tempmediaStorage/
+playwright-report/
+test-results/
+blob-report/
 
 # IDE & Editors
 .vscode/

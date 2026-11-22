@@ -343,6 +343,8 @@ ResearchPilot AI provides two production-safe health monitoring endpoints:
   - **Does NOT** trigger research pipelines, LLM calls, Tavily searches, or mutations.
   - Recommended interval for uptime monitors (like Better Uptime): **Every 4 to 6 hours**.
 
+For automated six-hour GitHub Actions checks, see [Supabase Keep-Alive setup and limitations](docs/SUPABASE_KEEPALIVE.md).
+
 ---
 
 ## 🛡️ Security & Testing

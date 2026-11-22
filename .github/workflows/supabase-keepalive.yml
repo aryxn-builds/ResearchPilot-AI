@@ -1,0 +1,146 @@
+name: Supabase Keep-Alive & Health Monitor
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: researchpilot-supabase-keepalive
+  cancel-in-progress: false
+
+jobs:
+  health:
+    # Manual runs must also select the default branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check backend and Supabase
+        env:
+          RESEARCHPILOT_BACKEND_URL: ${{ vars.RESEARCHPILOT_BACKEND_URL }}
+          HEALTH_CHECK_SECRET: ${{ secrets.HEALTH_CHECK_SECRET }}
+        # Python and curl are preinstalled; no checkout or dependency installation needed.
+        shell: python
+        run: |
+          import json
+          import math
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          timestamp = datetime.now(timezone.utc).isoformat()
+          result, reason = "FAIL", "Monitor could not complete."
+          backend, database = "unknown", "unknown"
+          status, duration, attempts = "000", "0.000", 0
+          try:
+              base = os.environ.get("RESEARCHPILOT_BACKEND_URL", "")
+              if not base:
+                  raise ValueError("Missing backend URL.")
+              parsed = urlsplit(base)
+              # Accept only an HTTPS origin, never credentials, paths, queries or fragments.
+              if (
+                  parsed.scheme != "https"
+                  or not re.fullmatch(r"[A-Za-z0-9.-]+", parsed.hostname or "")
+                  or parsed.netloc not in (parsed.hostname, f"{parsed.hostname}:443")
+                  or parsed.path not in ("", "/")
+                  or parsed.query or parsed.fragment
+                  or any(c.isspace() for c in base)
+                  or "?" in base or "#" in base
+              ):
+                  raise ValueError("Invalid backend URL.")
+              secret = os.environ.get("HEALTH_CHECK_SECRET", "")
+              if secret and (secret != secret.strip() or any(ord(c) < 32 or ord(c) > 126 for c in secret)):
+                  raise ValueError("Invalid secret format.")
+              headers = "Accept: application/json\nCache-Control: no-cache, no-store\n"
+              if secret:
+                  headers += f"Authorization: Bearer {secret}\n"
+              child_env = os.environ.copy()
+              child_env.pop("HEALTH_CHECK_SECRET", None)
+              with tempfile.TemporaryDirectory() as directory:
+                  body = Path(directory) / "response.json"
+                  command = [
+                      "curl", "--disable", "--silent", "--fail-with-body",
+                      "--proto", "=https", "--tlsv1.2", "--request", "GET",
+                      "--connect-timeout", "15", "--max-time", "120",
+                      "--max-filesize", "65536", "--header", "@-",
+                      "--output", str(body), "--write-out", "%{http_code} %{time_total}",
+                      "--url", base.rstrip("/") + "/api/v1/health/deep",
+                  ]
+                  for attempts in range(1, 4):
+                      status, duration = "000", "0.000"
+                      backend, database = "unknown", "unknown"
+                      body.unlink(missing_ok=True)
+                      try:
+                          response = subprocess.run(
+                              command, input=headers, text=True, capture_output=True,
+                              timeout=125, check=False, env=child_env,
+                          )
+                          code = response.returncode
+                          metadata = response.stdout.split()
+                          if len(metadata) == 2 and re.fullmatch(r"[0-9]{3}", metadata[0]):
+                              status = metadata[0]
+                              seconds = float(metadata[1])
+                              if math.isfinite(seconds) and seconds >= 0:
+                                  duration = f"{seconds:.3f}"
+                      except subprocess.TimeoutExpired:
+                          code, duration = 28, "125.000"
+                      payload = None
+                      if body.exists() and body.stat().st_size <= 65536:
+                          try:
+                              payload = json.loads(body.read_text(encoding="utf-8"))
+                          except (ValueError, UnicodeError):
+                              pass
+                      if isinstance(payload, dict):
+                          # Only fixed labels reach logs or summaries, never response contents.
+                          if payload.get("backend") == "ok":
+                              backend = "ok"
+                          if payload.get("database") in ("ok", "unavailable"):
+                              database = payload["database"]
+                      if code == 0 and status == "200" and isinstance(payload, dict) and (
+                          payload.get("status") == "healthy"
+                          and backend == "ok" and database == "ok"
+                      ):
+                          result, reason = "PASS", "Backend and Supabase are healthy."
+                          break
+                      if status in ("401", "403"):
+                          reason = "Authentication rejected; check the matching health secret."
+                          break
+                      retryable = code in (5, 6, 7, 28, 52, 55, 56) or (
+                          code in (0, 22) and status in ("502", "503", "504")
+                      )
+                      reason = (
+                          "Transient request failure; retry limit reached."
+                          if retryable else "Unexpected HTTP status, transport error or invalid health response."
+                      )
+                      if not retryable or attempts == 3:
+                          break
+                      time.sleep(20)
+          except (OSError, ValueError):
+              # Exceptions can include URLs, headers or internal details: never print them.
+              reason = "Missing/invalid configuration or monitor execution error."
+          finally:
+              summary = (
+                  "## Supabase Keep-Alive & Health Monitor\n\n"
+                  "| Metric | Value |\n| --- | --- |\n"
+                  f"| Execution timestamp (UTC) | {timestamp} |\n"
+                  f"| Backend availability | {backend} |\n"
+                  f"| Supabase connectivity | {database} |\n"
+                  f"| HTTP status (last attempt) | {status} |\n"
+                  f"| Request duration (last attempt, seconds) | {duration} |\n"
+                  f"| Attempts | {attempts} |\n"
+                  f"| Overall result | **{result}** |\n\n{reason}\n"
+              )
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+                  output.write(summary)
+              sys.stdout.write(f"Health check: {result}; HTTP {status}; attempts {attempts}. {reason}\n")
+          sys.exit(0 if result == "PASS" else 1)

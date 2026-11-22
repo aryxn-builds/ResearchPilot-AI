@@ -147,6 +147,19 @@ def test_deep_health_read_only_no_mutation(client: TestClient, mock_supabase) ->
     assert not mock_supabase.table.return_value.upsert.called
 
 
+def test_deep_health_queries_database_on_every_request(client: TestClient, mock_supabase) -> None:
+    """Each request awaits a fresh read, even when the research_sessions table is empty."""
+    mock_supabase.reset_mock()
+    for _ in range(2):
+        assert client.get("/api/v1/health/deep").status_code == 200
+    assert mock_supabase.table.call_count == 2
+    mock_supabase.table.assert_called_with("research_sessions")
+    query = mock_supabase.table.return_value
+    query.select.assert_called_with("id")
+    query.select.return_value.limit.assert_called_with(1)
+    assert query.select.return_value.limit.return_value.execute.await_count == 2
+
+
 def test_deep_health_secret_protection(client: TestClient) -> None:
     """Test 7 — Optional secret protection: Validates Authorization header when secret is configured."""
     with patch.object(settings, "HEALTH_CHECK_SECRET", "super-secret-token"):
