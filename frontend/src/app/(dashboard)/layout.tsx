@@ -72,7 +72,7 @@ export default async function DashboardLayout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="min-w-0 flex-1 flex flex-col h-[100dvh] overflow-hidden">
         {/* Mobile Header */}
         <header className="h-16 flex items-center justify-between px-4 border-b border-border bg-surface md:hidden">
           <Link href="/dashboard" className="flex items-center gap-2">
@@ -84,7 +84,13 @@ export default async function DashboardLayout({
           </Link>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 lg:p-8">
+        <nav aria-label="Mobile navigation" className="md:hidden flex flex-wrap gap-4 px-4 py-3 border-b border-border bg-surface text-sm">
+          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/dashboard/history">History</Link>
+          <Link href="/dashboard/settings">Settings</Link>
+          <form action={logout}><button type="submit" className="text-status-error">Log out</button></form>
+        </nav>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </div>
       </main>

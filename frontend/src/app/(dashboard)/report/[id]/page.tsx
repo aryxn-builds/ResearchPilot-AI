@@ -46,11 +46,18 @@ interface ReportData {
     id: string
     status: string
     research_question: string | null
-    config: { depth?: string } | null
+    config: { mode?: string } | null
     created_at: string
   }
   prose_content: string | null
   references: ReferenceItem[]
+}
+
+function safeReferenceUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username ? url : ''
+  } catch { return '' }
 }
 
 function buildReferenceList(
@@ -110,7 +117,7 @@ function buildReferenceList(
         marker: `[${num}]`,
         number: num,
         title: title.trim() || domain || url || `Source ${num}`,
-        url,
+        url: safeReferenceUrl(url),
         domain,
         source_id: sourceId,
       })
@@ -167,7 +174,7 @@ function buildReferenceList(
         marker: `[${num}]`,
         number: num,
         title: src.title || src.url,
-        url: src.url,
+        url: safeReferenceUrl(src.url),
         domain,
         source_id: src.id,
       })
@@ -234,7 +241,7 @@ function linkifyCitationsAndUrls(
   // Convert bare URLs into clickable markdown links if not already wrapped
   prose = prose.replace(/(^|[\s(])(https?:\/\/[^\s)<>]+)/g, '$1[$2]($2)')
 
-  return prose
+  return prose.replace(new RegExp(uuidPattern.source, "gi"), "")
 }
 
 export default function ReportPage() {
@@ -247,6 +254,11 @@ export default function ReportPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let mounted = true
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 120000)
+    setLoading(true)
+    setError(null)
     const fetchReport = async () => {
       const supabase = createClient()
       const {
@@ -264,6 +276,8 @@ export default function ReportPage() {
           .from('research_sessions')
           .select('id, status, research_question, config, created_at')
           .eq('id', id)
+          .eq('user_id', session.user.id)
+          .abortSignal(controller.signal)
           .single()
 
         if (sessionError || !sessionData) {
@@ -274,6 +288,8 @@ export default function ReportPage() {
 
         // Fetch report content from the backend API using Bearer token
         const reportRes = await fetch(getApiUrl(`/research/${id}/report`), {
+          signal: controller.signal,
+          cache: 'no-store',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
@@ -281,6 +297,7 @@ export default function ReportPage() {
 
         let markdownContent: string | null = null
         let citationMap: Record<string, unknown> | null = null
+        if (!reportRes.ok) throw new Error("Report unavailable")
         if (reportRes.ok) {
           const reportJson = await reportRes.json()
           markdownContent =
@@ -288,11 +305,13 @@ export default function ReportPage() {
           citationMap = reportJson.data?.citation_map ?? null
         }
 
-        // Also fetch sources from Supabase for completeness
-        const { data: sourcesData } = await supabase
+        // API citation metadata is authoritative; fetch sources only for legacy maps.
+        const needsSources = !citationMap || Object.values(citationMap).some(value => typeof value === 'string')
+        const { data: sourcesData } = needsSources ? await supabase
           .from('sources')
           .select('id, url, title, domain')
           .eq('session_id', id)
+          .abortSignal(controller.signal) : { data: [] }
 
         const { references, uuidToNumber } = buildReferenceList(
           citationMap,
@@ -304,19 +323,23 @@ export default function ReportPage() {
           ? linkifyCitationsAndUrls(markdownContent, uuidToNumber)
           : null
 
+        if (controller.signal.aborted) return
         setData({
           session: sessionData,
           prose_content: proseContent,
           references,
         })
       } catch {
+        if (!mounted) return
         setError('Failed to load report. Please try again.')
       } finally {
-        setLoading(false)
+        clearTimeout(timeout)
+        if (mounted) setLoading(false)
       }
     }
 
-    fetchReport()
+    void fetchReport()
+    return () => { mounted = false; clearTimeout(timeout); controller.abort() }
   }, [id, router])
 
   if (loading) {
@@ -383,7 +406,7 @@ export default function ReportPage() {
                 })}
               </span>
               <span>•</span>
-              <span>Depth: {session.config?.depth || 'Standard'}</span>
+              <span>Mode: {session.config?.mode || 'deep'}</span>
               {references.length > 0 && (
                 <>
                   <span>•</span>
@@ -425,7 +448,7 @@ export default function ReportPage() {
                             const targetId = href.substring(1)
                             const elem = document.getElementById(targetId)
                             if (elem) {
-                              elem.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                              elem.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
                               elem.classList.add('ring-2', 'ring-brand-sage', 'bg-brand-sage/10')
                               setTimeout(() => {
                                 elem.classList.remove('ring-2', 'ring-brand-sage', 'bg-brand-sage/10')

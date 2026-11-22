@@ -9,7 +9,8 @@ import { formatDistanceToNow } from 'date-fns'
 
 export const dynamic = 'force-dynamic'
 
-export default async function HistoryPage() {
+export default async function HistoryPage({ searchParams }: { searchParams: { page?: string } }) {
+  const page = Math.max(1, Math.min(10000, Number.parseInt(searchParams.page || "1", 10) || 1))
   const supabase = await createClient()
   const {
     data: { user },
@@ -22,9 +23,12 @@ export default async function HistoryPage() {
   // Fetch all research sessions for the authenticated user (Rule S-03 user isolation)
   const { data: sessions, error } = await supabase
     .from('research_sessions')
-    .select('*')
+    .select('id, research_question, status, created_at, iteration_count, total_claims')
+    .is('deleted_at', null)
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range((page - 1) * 20, page * 20 - 1)
 
   const completedCount = sessions?.filter((s) => s.status === 'completed').length || 0
 
@@ -58,7 +62,7 @@ export default async function HistoryPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="border-border bg-surface shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-secondary">Total Investigations</CardTitle>
+            <CardTitle className="text-sm font-medium text-secondary">Investigations on this page</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground font-serif">{sessions?.length || 0}</div>
@@ -66,7 +70,7 @@ export default async function HistoryPage() {
         </Card>
         <Card className="border-border bg-surface shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-secondary">Completed Reports</CardTitle>
+            <CardTitle className="text-sm font-medium text-secondary">Completed on this page</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-brand-sage font-serif">{completedCount}</div>
@@ -74,6 +78,11 @@ export default async function HistoryPage() {
         </Card>
       </div>
 
+      <nav aria-label="History pages" className="flex gap-6 text-sm">
+        {page > 1 && <Link href={`?page=${page - 1}`}>Previous</Link>}
+        <span>Page {page}</span>
+        {sessions?.length === 20 && <Link href={`?page=${page + 1}`}>Next</Link>}
+      </nav>
       {/* Session List */}
       <div className="space-y-4">
         {error && (
@@ -108,7 +117,7 @@ export default async function HistoryPage() {
                   <div className="space-y-1.5 min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        href={`/report/${session.id}`}
+                        href={session.status === 'completed' ? `/report/${session.id}` : `/research/active/${session.id}`}
                         className="font-semibold text-base text-foreground hover:text-brand-sage hover:underline underline-offset-4 line-clamp-1"
                       >
                         {session.research_question || 'Untitled Research'}
@@ -141,9 +150,9 @@ export default async function HistoryPage() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <Link href={`/report/${session.id}`}>
+                    <Link href={session.status === 'completed' ? `/report/${session.id}` : `/research/active/${session.id}`}>
                       <Button variant="outline" size="sm" className="w-full sm:w-auto">
-                        View Report
+                        {session.status === 'completed' ? 'View Report' : 'View Status'}
                       </Button>
                     </Link>
                   </div>

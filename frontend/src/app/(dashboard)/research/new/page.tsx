@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -11,6 +11,8 @@ import { Bot, Loader2 } from 'lucide-react'
 
 export default function NewResearchPage() {
   const router = useRouter()
+  const pending = useRef(false)
+  const key = useRef<string | null>(null)
   const [topic, setTopic] = useState('')
   const [mode, setMode] = useState<'deep' | 'fast'>('deep')
   const [loading, setLoading] = useState(false)
@@ -18,10 +20,15 @@ export default function NewResearchPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!topic.trim()) return
+    if (pending.current || topic.trim().length < 10) return
+    pending.current = true
+    key.current ??= crypto.randomUUID()
 
     setLoading(true)
     setError(null)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000)
+    try {
     const supabase = createClient()
     const { data: { session } } = await supabase.auth.getSession()
 
@@ -30,11 +37,12 @@ export default function NewResearchPage() {
       return
     }
 
-    try {
       const response = await fetch(getApiUrl('/research'), {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': key.current,
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
@@ -44,13 +52,14 @@ export default function NewResearchPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to start research')
+        throw new Error(response.status === 429 ? 'Research limit reached. Try again later.' : 'Could not start research. Check your connection and try again.')
       }
 
       const data = await response.json()
       
       // Redirect to the active research view
       const researchId = data?.data?.research_id || data?.research_id || data?.id;
+      if (typeof researchId !== "string" || !/^[0-9a-f-]{36}$/i.test(researchId)) throw new Error("Invalid session response. Check History before retrying.")
       router.push(`/research/active/${researchId}`)
     } catch (err: Error | unknown) {
       if (err instanceof Error) {
@@ -58,6 +67,9 @@ export default function NewResearchPage() {
       } else {
         setError('An unexpected error occurred')
       }
+    } finally {
+      clearTimeout(timer)
+      pending.current = false
       setLoading(false)
     }
   }
@@ -95,7 +107,10 @@ export default function NewResearchPage() {
                 id="topic"
                 placeholder="e.g., What are the latest advancements in solid-state batteries?"
                 value={topic}
-                onChange={(e) => setTopic(e.target.value)}
+                onChange={(e) => { setTopic(e.target.value); key.current = null }}
+                minLength={10}
+                maxLength={1000}
+                disabled={loading}
                 required
               />
             </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getApiUrl } from '@/lib/api'
+import { readResearchStream } from '@/lib/research-stream'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Loader2, CheckCircle2, ArrowRight, Bot } from 'lucide-react'
@@ -34,85 +35,71 @@ export default function ActiveResearchPage() {
   }, [startedAt, terminal])
 
   useEffect(() => {
-    let eventSource: EventSource | null = null;
-    let isMounted = true;
-
-    const setupSSE = async () => {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session) {
-        if (isMounted) router.push('/login')
-        return
+    const controller = new AbortController()
+    const handle = (event: string, data: Record<string, unknown>) => {
+      if (controller.signal.aborted) return
+      if (event === 'done' || event === 'error') {
+        setTerminal(true)
+        if (typeof data.elapsed_seconds === 'number') setElapsed(Math.floor(data.elapsed_seconds))
+        if (data.status === 'completed') setIsComplete(true)
+        else setError(typeof data.failure_reason === 'string' ? data.failure_reason : 'Research ended without a completed report.')
+        return true
       }
+      if (event === 'status_update' && typeof data.status === 'string') {
+        if (typeof data.mode === 'string') setMode(data.mode)
+        if (typeof data.created_at === 'string') setStartedAt(Date.parse(data.created_at))
+        setEvents(previous => {
+          if (previous.at(-1)?.status === data.status) return previous
+          return [...previous.slice(-49), { status: String(data.status), agent: 'System', message: `Status updated to ${data.status}` }]
+        })
+      }
+      return false
+    }
+    setEvents([])
+    setError(null)
+    setTerminal(false)
+    setIsComplete(false)
+    setMode(null)
+    setStartedAt(null)
+    setElapsed(0)
 
-      // Fetch the token and use it if SSE on the backend requires auth.
-      // Wait, standard EventSource doesn't support custom headers easily, so we usually pass token in query param or rely on cookies.
-      // Assuming the backend SSE endpoint can authenticate via query param or doesn't need auth for the stream if it's protected otherwise,
-      // Actually, standard EventSource doesn't support headers. If backend needs it, we append it as a query param.
-      
-      const url = new URL(getApiUrl(`/research/${id}/stream`))
-      url.searchParams.append('token', session.access_token)
-
-      eventSource = new EventSource(url.toString())
-
-      eventSource.addEventListener('status_update', (event) => {
-        if (!isMounted) return
+    const run = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (controller.signal.aborted) return
         try {
-          const data = JSON.parse(event.data)
-          if (data.mode) setMode(data.mode)
-          if (data.created_at) setStartedAt(Date.parse(data.created_at))
-          setEvents((prev) => [...prev, { status: data.status, agent: 'System', message: `Status updated to ${data.status}` }])
-        } catch (err) {
-          console.error("Failed to parse SSE status_update data", err)
-        }
-      })
-
-      eventSource.addEventListener('done', (event) => {
-        if (!isMounted) return
-        try {
-          const data = JSON.parse(event.data)
-          setTerminal(true)
-          if (typeof data.elapsed_seconds === 'number') setElapsed(Math.floor(data.elapsed_seconds))
-          if (data.status === 'completed') {
-            setIsComplete(true)
-          } else {
-            setError(data.failure_reason || (data.status === 'cancelled' ? 'Research was cancelled.' : 'Research failed.'))
+          const supabase = createClient()
+          const { data: { session } } = await supabase.auth.getSession()
+          if (controller.signal.aborted) return
+          if (!session) { router.replace('/login'); return }
+          const response = await fetch(getApiUrl(`/research/${id}/stream`), {
+            headers: { Authorization: `Bearer ${session.access_token}`, Accept: 'text/event-stream' },
+            signal: controller.signal, cache: 'no-store',
+          })
+          if ([401, 403, 404].includes(response.status)) {
+            setError('Research unavailable. Check your session and access permissions.')
+            setTerminal(true)
+            return
           }
-          eventSource?.close()
-        } catch (err) {
-          console.error("Failed to parse SSE done data", err)
+          if (!response.ok || !response.body) throw new Error('Stream unavailable')
+          if (await readResearchStream(response.body, controller.signal, handle)) return
+        } catch {
+          if (controller.signal.aborted) return
         }
-      })
-      
-      eventSource.addEventListener('message', (event) => {
-        if (!isMounted) return
-        try {
-          const data = JSON.parse(event.data)
-          setEvents((prev) => [...prev, data])
-        } catch (err) {
-          console.error("Failed to parse SSE message data", err)
-        }
-      })
-
-      eventSource.onerror = (err) => {
-        console.error("SSE Error:", err)
-        if (isMounted) {
-          setTerminal(true)
-          setError("Connection to research agent lost.")
-          eventSource?.close()
+        if (attempt < 2) {
+          await new Promise<void>(resolve => {
+            const finish = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', finish); resolve() }
+            const timer = setTimeout(finish, 1000 * (attempt + 1))
+            controller.signal.addEventListener('abort', finish, { once: true })
+          })
         }
       }
-    }
-
-    setupSSE()
-
-    return () => {
-      isMounted = false
-      if (eventSource) {
-        eventSource.close()
+      if (!controller.signal.aborted) {
+        setError('Live updates disconnected after three attempts. Reload to reconnect.')
+        setTerminal(true)
       }
     }
+    void run()
+    return () => controller.abort()
   }, [id, router])
 
   return (
@@ -148,7 +135,7 @@ export default function ActiveResearchPage() {
             </div>
           )}
           
-          <div className="bg-foreground rounded-lg p-4 font-mono text-sm text-secondary h-[400px] overflow-y-auto flex flex-col gap-2">
+          <div role="log" aria-label="Research activity" className="bg-foreground rounded-lg p-4 font-mono text-sm text-secondary h-[400px] overflow-y-auto flex flex-col gap-2">
             {events.length === 0 && !error && !isComplete && (
               <div className="text-center mt-10">Initializing agents...</div>
             )}

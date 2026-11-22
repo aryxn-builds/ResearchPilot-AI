@@ -4,18 +4,24 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { FileText, ArrowRight, Clock, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
   // Fetch user's research history
-  const { data: researchSessions } = await supabase
+  const { data: researchSessions, error } = await supabase
     .from('research_sessions')
-    .select('*')
+    .select('id, research_question, status, created_at')
+    .eq('user_id', user.id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(10)
 
+  if (error) throw new Error("Could not load recent research. Please retry.")
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       <div>
@@ -45,12 +51,12 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-secondary">Total Reports</span>
+              <span className="text-secondary">Recent Investigations</span>
               <span className="font-bold text-xl">{researchSessions?.length || 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-secondary">Avg. Processing Time</span>
-              <span className="font-bold text-xl">~2.5 min</span>
+              <span className="text-secondary">Completed in recent activity</span>
+              <span className="font-bold text-xl">{researchSessions?.filter(s => s.status === 'completed').length || 0}</span>
             </div>
           </CardContent>
         </Card>
@@ -85,7 +91,7 @@ export default async function DashboardPage() {
                 <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <Link href={`/report/${session.id}`} className="font-semibold text-lg hover:underline decoration-brand-sage underline-offset-4">
+                      <Link href={session.status === 'completed' ? `/report/${session.id}` : `/research/active/${session.id}`} className="font-semibold text-lg hover:underline decoration-brand-sage underline-offset-4">
                         {session.research_question || 'Untitled Research'}
                       </Link>
                       <Badge variant={session.status === 'completed' ? 'success' : session.status === 'failed' ? 'error' : 'warning'}>
@@ -99,9 +105,9 @@ export default async function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <Link href={`/report/${session.id}`}>
+                  <Link href={session.status === 'completed' ? `/report/${session.id}` : `/research/active/${session.id}`}>
                     <Button variant="outline" size="sm" className="shrink-0 w-full sm:w-auto">
-                      View Report
+                      {session.status === 'completed' ? 'View Report' : 'View Status'}
                     </Button>
                   </Link>
                 </CardContent>

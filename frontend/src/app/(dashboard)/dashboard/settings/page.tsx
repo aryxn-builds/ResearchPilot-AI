@@ -1,3 +1,4 @@
+import { SubmitButton } from '@/components/ui/SubmitButton'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -23,6 +24,8 @@ async function updateProfile(formData: FormData) {
 
   const displayName = (formData.get('display_name') as string)?.trim()
 
+  if (displayName && displayName.length > 100) redirect("/dashboard/settings?error=Display name must be at most 100 characters.")
+
   try {
     // 1. Update public.users table (Rule S-03 user isolation)
     const { error: dbError } = await supabase
@@ -38,10 +41,11 @@ async function updateProfile(formData: FormData) {
     }
 
     // 2. Update auth user metadata
-    await supabase.auth.updateUser({
+    const { error: authError } = await supabase.auth.updateUser({
       data: { display_name: displayName },
     })
 
+    if (authError) redirect('/dashboard/settings?error=Profile partially updated. Please retry.')
     revalidatePath('/dashboard/settings')
     revalidatePath('/dashboard')
     redirect('/dashboard/settings?success=Profile updated successfully')
@@ -136,6 +140,7 @@ export default async function SettingsPage({
                 <Input
                   id="display_name"
                   name="display_name"
+                  maxLength={100}
                   defaultValue={currentDisplayName}
                   placeholder="Your full name or title"
                   className="max-w-md"
@@ -159,9 +164,7 @@ export default async function SettingsPage({
               </div>
             </CardContent>
             <CardFooter className="border-t border-border pt-4">
-              <Button variant="brand" type="submit">
-                Save Changes
-              </Button>
+              <SubmitButton>Save Changes</SubmitButton>
             </CardFooter>
           </form>
         </Card>

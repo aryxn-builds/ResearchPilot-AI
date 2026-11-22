@@ -1,5 +1,5 @@
+import { SubmitButton } from '@/components/ui/SubmitButton'
 import { signup } from '@/app/auth/actions'
-import { Button } from '@/components/ui/Button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import Link from 'next/link'
@@ -74,9 +74,7 @@ export default function SignupPage({
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button variant="brand" className="w-full font-medium" type="submit">
-              Create Account
-            </Button>
+            <SubmitButton>Create Account</SubmitButton>
             <div className="text-center text-sm text-secondary">
               Already have an account?{' '}
               <Link href="/login" className="text-brand-sage hover:underline font-medium">
