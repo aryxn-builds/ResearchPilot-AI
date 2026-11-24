@@ -22,15 +22,17 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
+from postgrest.exceptions import APIError
 
 from app.api.deps import (
     CurrentUser,
     SSEUser,
     get_research_service,
 )
-from app.core.exceptions import ReportNotFoundError
+from app.core.exceptions import AppError, ReportNotFoundError
 from app.core.logging import get_logger
 from app.schemas.common import (
     PaginatedResponse,
@@ -78,18 +80,26 @@ async def submit_research(
     service: ResearchService = Depends(get_research_service),
 ) -> SuccessResponse[AsyncJobAccepted]:
     """Submit a new research question for processing."""
-    session = await service.create_session(
-        user_id=user.id,
-        question=body.question,
-        config=body.config,
-        idempotency_key=idempotency_key,
-    )
-
     # Bind user_id into rate limit state for middleware
     request.state.user_id = str(user.id)
 
-    # Start background research task (asyncio — ADR-002)
-    await service.start_research_task(session_id=session.id, user_id=user.id)
+    try:
+        session = await service.create_session(
+            user_id=user.id,
+            question=body.question,
+            config=body.config,
+            idempotency_key=idempotency_key,
+        )
+
+        # Start background research task (asyncio — ADR-002)
+        if session.status == "pending":
+            await service.start_research_task(session_id=session.id, user_id=user.id)
+    except (httpx.TransportError, TimeoutError) as error:
+        raise AppError("The research database is unavailable.", "DATABASE_UNAVAILABLE", 503) from error
+    except APIError as error:
+        if error.code not in {"PGRST000", "PGRST001", "PGRST002", "PGRST003", "57014"}:
+            raise
+        raise AppError("The research database is unavailable.", "DATABASE_UNAVAILABLE", 503) from error
 
     base_url = str(request.base_url).rstrip("/")
     return make_success(

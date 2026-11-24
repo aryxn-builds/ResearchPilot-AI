@@ -31,6 +31,7 @@ from app.core.database import execute_with_retry, get_service_client
 from app.core.exceptions import (
     MaxSessionsReachedError,
     ResearchNotFoundError,
+    SessionAlreadyExistsError,
 )
 from app.core.research_mode import fast_research, research_session, resolve_mode
 from app.graph.research_graph import research_graph
@@ -104,6 +105,38 @@ class ResearchService:
         """
         client = get_service_client()
 
+        session_id = (
+            uuid.uuid5(uuid.NAMESPACE_URL, f"researchpilot:submission:{user_id}:{idempotency_key}")
+            if idempotency_key
+            else uuid.uuid4()
+        )
+        stored_config = {**config.model_dump(), "mode": resolve_mode(question, config.mode)}
+
+        async def find_submission() -> ResearchSessionResponse | None:
+            result = await execute_with_retry(
+                lambda: client.table("research_sessions")
+                .select("*")
+                .eq("id", str(session_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+            if not result.data:
+                return None
+            row = result.data[0]
+            if (
+                row.get("deleted_at")
+                or row["research_question"] != question
+                or row["config"] != stored_config
+            ):
+                raise SessionAlreadyExistsError("This submission identifier belongs to another request.")
+            return self._row_to_response(row)
+
+        # A replay can recover its session even if it filled the last active slot.
+        if idempotency_key:
+            existing = await find_submission()
+            if existing:
+                return existing
+
         # Check active session count for this user with retry for transient network drops
         active_count_result = await execute_with_retry(
             lambda: client.table("research_sessions")
@@ -115,23 +148,12 @@ class ResearchService:
         )
         active_count = active_count_result.count or 0
         if active_count >= settings.RESEARCH_MAX_CONCURRENT_SESSIONS_PER_USER:
+            if idempotency_key:
+                existing = await find_submission()
+                if existing:
+                    return existing
             raise MaxSessionsReachedError(settings.RESEARCH_MAX_CONCURRENT_SESSIONS_PER_USER)
 
-        # Check idempotency key if provided
-        if idempotency_key:
-            existing = await execute_with_retry(
-                lambda: client.table("research_sessions")
-                .select("id, status")
-                .eq("user_id", str(user_id))
-                .eq("idempotency_key", idempotency_key)
-                .is_("deleted_at", "null")
-                .execute()
-            )
-            if existing.data:
-                # Return existing session (idempotent response)
-                return await self.get_session(UUID(existing.data[0]["id"]), user_id)
-
-        session_id = uuid.uuid4()
         now = datetime.now(tz=UTC).isoformat()
 
         row = {
@@ -139,23 +161,28 @@ class ResearchService:
             "user_id": str(user_id),
             "research_question": question,
             "status": "pending",
-            "config": {**config.model_dump(), "mode": resolve_mode(question, config.mode)},
+            "config": stored_config,
             "iteration_count": 0,
             "created_at": now,
             "updated_at": now,
         }
 
-        if idempotency_key:
-            row["idempotency_key"] = idempotency_key
-
+        # The existing primary key makes this safe across processes and after a lost
+        # insert response. A replay can never overwrite an existing session.
         result = await execute_with_retry(
-            lambda: client.table("research_sessions").insert(row).execute()
+            lambda: client.table("research_sessions")
+            .upsert(row, on_conflict="id", ignore_duplicates=True)
+            .execute()
         )
-        data = result.data[0]
+        if not result.data:
+            existing = await find_submission()
+            if existing:
+                return existing
+            raise SessionAlreadyExistsError()
 
         logger.info("research_session_created", session_id=str(session_id), user_id=str(user_id))
 
-        return self._row_to_response(data)
+        return self._row_to_response(result.data[0])
 
     async def start_research_task(self, session_id: UUID, user_id: UUID) -> None:
         """Enqueue the research job as an asyncio background task.
@@ -168,6 +195,20 @@ class ResearchService:
             user_id: The owning user.
         """
         if str(session_id) in _active_tasks:
+            return
+        # Only the request that transitions the row out of pending can start the
+        # pipeline. Replays can recover an insert whose response was lost.
+        client = get_service_client()
+        claimed = await (
+            client.table("research_sessions")
+            .update({"status": "planning", "updated_at": datetime.now(tz=UTC).isoformat()})
+            .eq("id", str(session_id))
+            .eq("user_id", str(user_id))
+            .eq("status", "pending")
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        if not claimed.data:
             return
         task = asyncio.create_task(
             self._run_research_graph(session_id, user_id),
@@ -225,7 +266,6 @@ class ResearchService:
             "report": None,
         }
 
-        await self._update_session_status(session_id, "planning")
         await event_bus.publish(str(session_id), "status_update", {"status": "planning"})
 
         # Capture stage transitions once, even when fan-out yields several updates.
