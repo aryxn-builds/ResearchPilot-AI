@@ -296,9 +296,8 @@ All errors use a consistent structure:
 
 **Purpose:** Server-Sent Events stream for real-time research progress. Connect at research start; keep open until `event: done` or `event: error`.
 
-**Authentication:** Required (JWT via query param `?token=<jwt>` since SSE does not support custom headers in all browsers)
+**Authentication:** Required (JWT in the Authorization: Bearer header)
 
-> **Security Note:** Passing JWT as a query parameter is a known tradeoff for SSE. The token must be short-lived, and the backend must validate it on connection. Do not log query parameters containing tokens.
 
 **Response:** `Content-Type: text/event-stream`
 
@@ -655,47 +654,28 @@ Research is a long-running operation (typically 30–120 seconds). The API desig
 ### Connection
 
 ```
-GET /api/v1/research/{research_id}/stream?token=<jwt>
+GET /api/v1/research/{research_id}/stream
+Authorization: Bearer <jwt>
 Accept: text/event-stream
 Cache-Control: no-cache
 ```
 
 ### Stream Format
 
-Each event follows the SSE specification:
+The stream sends a `status_update` snapshot on connect. Subsequent updates carry the current persisted research stage. A `done` event signals completion, failure, or cancellation.
 
-```
-id: 1
+```text
 event: status_update
-data: {"status":"planning","phase":"planner_agent","message":"Decomposing research question into sub-questions..."}
+data: {"status":"planning"}
 
-id: 2
-event: plan_created
-data: {"sub_question_count":4,"sub_questions":["What are attention-based failure modes?","How does chain-of-thought affect reasoning?","What are known prompting failure patterns?","How do benchmark saturations affect evaluation?"]}
+event: heartbeat
+data: {}
 
-id: 3
-event: research_started
-data: {"task_count":4}
-
-...
-
-id: 15
 event: done
-data: {"research_id":"3fa85f64...","status":"completed","report_url":"/api/v1/research/3fa85f64.../report"}
+data: {"status":"completed"}
 ```
 
-### Heartbeat
-
-The server sends a comment every 15 seconds to keep the connection alive:
-
-```
-: heartbeat
-
-```
-
-### Reconnection
-
-On disconnect, the client sends `Last-Event-ID` header. The server replays missed events from the event log. Events are stored for the duration of the active research session only.
+The server sends a heartbeat after 15 seconds without events. Clients use authenticated fetch streaming and reconnect while the session is active. Events are process-local and have no replay cursor. Read `GET /api/v1/research/{research_id}` to recover the question, mode, current status, and failure reason. Use persisted completion to open the report.
 
 ---
 

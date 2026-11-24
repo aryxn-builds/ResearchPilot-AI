@@ -37,7 +37,8 @@ async def main():
             async with aconnect_sse(
                 client, 
                 "GET", 
-                f"http://localhost:8000/api/v1/research/{research_id}/stream?token={token}"
+                f"http://localhost:8000/api/v1/research/{research_id}/stream",
+                headers={"Authorization": f"Bearer {token}"},
             ) as event_source:
                 async for sse in event_source.aiter_sse():
                     print(f"SSE: {sse.data}")
@@ -45,7 +46,10 @@ async def main():
                         break
         except Exception as e:
             # Re-issue request to get raw response
-            err_res = await client.get(f"http://localhost:8000/api/v1/research/{research_id}/stream?token={token}")
+            err_res = await client.get(
+                f"http://localhost:8000/api/v1/research/{research_id}/stream",
+                headers={"Authorization": f"Bearer {token}"},
+            )
             print(f"SSE ERROR: {e}")
             print(f"Raw SSE Endpoint Response: {err_res.status_code} {err_res.text}")
         

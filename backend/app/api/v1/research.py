@@ -29,7 +29,6 @@ from postgrest.exceptions import APIError
 
 from app.api.deps import (
     CurrentUser,
-    SSEUser,
     get_research_service,
 )
 from app.core.exceptions import AppError, ReportNotFoundError
@@ -210,15 +209,14 @@ async def get_research_status(
     summary="Stream research progress events",
     description=(
         "Server-Sent Events stream for real-time research progress. "
-        "Authenticate via ?token=<jwt> query parameter. "
+        "Authenticate using the Authorization: Bearer header. "
         "Events follow the schema defined in API_SPEC.md."
     ),
     response_class=StreamingResponse,
-    # SSE uses query-param auth — not Bearer, so no CurrentUser dependency here
 )
 async def stream_research(
     research_id: UUID,
-    user: SSEUser,
+    user: CurrentUser,
     service: ResearchService = Depends(get_research_service),
 ) -> StreamingResponse:
     """Open a Server-Sent Events stream for research progress.

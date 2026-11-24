@@ -9,9 +9,9 @@ export async function readResearchStream(
   let buffer = ''
   let lastActivity = Date.now()
   const watchdog = setInterval(() => {
-    if (Date.now() - lastActivity > 45000) void reader.cancel()
+    if (Date.now() - lastActivity > 45000) void reader.cancel().catch(() => undefined)
   }, 5000)
-  const cancel = () => { void reader.cancel() }
+  const cancel = () => { void reader.cancel().catch(() => undefined) }
   signal.addEventListener('abort', cancel, { once: true })
   try {
     while (!signal.aborted) {
