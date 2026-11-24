@@ -11,17 +11,18 @@ AGENTS.md Rule AI-09: Services are injected, not instantiated in routes.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 from fastapi import Depends, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from supabase_auth.errors import AuthApiError, AuthRetryableError
 
-from app.core.config import settings
-from app.core.exceptions import MissingAuthError, InvalidTokenError
-from app.core.security import AuthenticatedUser
 from app.core.database import get_anon_client
-import asyncio
+from app.core.exceptions import AppError, InvalidTokenError, MissingAuthError
+from app.core.security import AuthenticatedUser
 from app.services.research_service import ResearchService
 from app.services.user_service import UserService
 
@@ -52,8 +53,11 @@ async def get_current_user(
                 res = await get_anon_client().auth.get_user(token)
                 break
             except Exception as exc:
+                if isinstance(exc, AuthApiError) and exc.status < 500:
+                    raise
                 last_exc = exc
-                await asyncio.sleep(1)
+                if attempt < 2:
+                    await asyncio.sleep(1)
         if res is None:
             raise last_exc
         user = res.user
@@ -64,11 +68,14 @@ async def get_current_user(
             email=user.email or "",
             role=user.role or "authenticated"
         )
+    except (AuthRetryableError, httpx.TransportError, TimeoutError) as exc:
+        raise AppError("Sign-in verification is unavailable.", "AUTH_UNAVAILABLE", 503) from exc
+    except AuthApiError as exc:
+        if exc.status >= 500:
+            raise AppError("Sign-in verification is unavailable.", "AUTH_UNAVAILABLE", 503) from exc
+        raise InvalidTokenError() from exc
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        print(f"DEBUG: get_current_user failed: {repr(exc)}")
-        raise InvalidTokenError(f"Token validation failed: {exc}") from exc
+        raise InvalidTokenError() from exc
 
 
 async def get_sse_user(

@@ -616,9 +616,7 @@ When exceeded: `429 Too Many Requests` with `Retry-After` header.
 Idempotency-Key: <client-generated-uuid>
 ```
 
-If a request with the same `Idempotency-Key` is received within 24 hours, the original response is returned without starting a new research session.
-
-Idempotency keys are stored with the session and expire after 24 hours.
+Retry the same question and configuration with the original `Idempotency-Key` if the response was lost. The authenticated user and key determine the session ID. Replaying the request returns the same session and its current status while its record exists. Reusing a key for a different question or configuration, or replaying a deleted session, returns HTTP 409. Generate a new key for each intentionally new submission.
 
 ---
 
