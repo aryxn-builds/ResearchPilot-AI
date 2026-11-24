@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsc src/lib/research-stream.ts --target es2022 --module commonjs --outDir scratch --skipLibCheck && node --test tests/research-stream.test.mjs"
+    "test": "tsc src/lib/research-stream.ts --target es2022 --module commonjs --outDir scratch --skipLibCheck && tsc -p tests/tsconfig.submission.json && node --test tests/research-stream.test.mjs tests/research-submission.test.cjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
