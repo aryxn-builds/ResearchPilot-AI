@@ -1,81 +1,76 @@
 import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
+import httpx
 import pytest
+from fastapi import FastAPI
+from supabase_auth.errors import AuthApiError
 
-# Note: We can't easily test the FastAPI route directly without structlog
-# being installed in the environment for the test runner, but we can write
-# the test logic for the SSE generator function directly or just mock things.
+from app.api import deps
+from app.core.exceptions import ResearchNotFoundError
+from app.schemas.research import ResearchSessionResponse
+from app.services.research_service import event_bus
 
 
-@pytest.mark.asyncio
-async def test_sse_race_condition():
-    """
-    Test that the SSE event generator subscribes BEFORE checking the session status,
-    so that it doesn't miss the 'done' event if the session completes immediately
-    after the check.
-    """
+async def test_research_progress_endpoints_require_bearer_and_ownership(
+    async_client: httpx.AsyncClient, app_with_mocked_db: FastAPI, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner, other, session_id = uuid4(), uuid4(), uuid4()
 
-    # Create an event bus mock
-    class MockQueue:
-        def __init__(self):
-            self.events = []
+    async def get_user(token: str) -> SimpleNamespace:
+        if token == "expired":
+            raise AuthApiError("JWT expired", 401, "bad_jwt")
+        return SimpleNamespace(user=SimpleNamespace(
+            id=str(owner if token == "owner" else other), email="", role="authenticated",
+        ))
 
-        async def get(self):
-            if not self.events:
-                await asyncio.sleep(0.1)  # Simulate waiting
-                raise TimeoutError()
-            return self.events.pop(0)
+    async def get_session(session_id: UUID, user_id: UUID) -> ResearchSessionResponse:
+        if user_id != owner:
+            raise ResearchNotFoundError(str(session_id))
+        return ResearchSessionResponse(
+            id=session_id, question="what is GPT?", status="completed",
+            created_at=datetime.now(UTC),
+        )
 
-    mock_q = MockQueue()
-    mock_q.events = [("done", {"status": "completed"})]
+    lookup = AsyncMock(side_effect=get_session)
+    monkeypatch.setattr(deps, "get_anon_client", lambda: SimpleNamespace(
+        auth=SimpleNamespace(get_user=get_user),
+    ))
+    app_with_mocked_db.dependency_overrides[deps.get_research_service] = lambda: (
+        SimpleNamespace(get_session=lookup)
+    )
+    base = f"/api/v1/research/{session_id}"
+    for path in (base, f"{base}/status", f"{base}/stream"):
+        assert (await async_client.get(path, headers={"Authorization": "Bearer other"})).status_code == 404
+        assert (await async_client.get(path, headers={"Authorization": "Bearer expired"})).status_code == 401
+    assert (await async_client.get(f"{base}/stream?token=owner")).status_code == 401
 
-    from unittest.mock import MagicMock
+    headers = {"Authorization": "Bearer owner"}
+    detail = await async_client.get(base, headers=headers)
+    assert detail.json()["data"]["question"] == "what is GPT?"
+    status = await async_client.get(f"{base}/status", headers=headers)
+    assert status.json()["data"]["research_id"] == str(session_id)
+    stream = await async_client.get(f"{base}/stream", headers=headers)
+    assert stream.status_code == 200
+    assert stream.headers["content-type"].startswith("text/event-stream")
+    assert "event: status_update" in stream.text
+    assert "event: done" in stream.text
+    assert '"status": "completed"' in stream.text
 
-    mock_event_bus = MagicMock()
-    mock_event_bus.subscribe.return_value = mock_q
+    async def complete_during_connect(session_id: UUID, user_id: UUID) -> ResearchSessionResponse:
+        assert user_id == owner
+        if lookup.await_count == 2:
+            await event_bus.publish(str(session_id), "done", {"status": "completed"})
+        return ResearchSessionResponse(
+            id=session_id, question="what is GPT?", status="researching",
+            created_at=datetime.now(UTC),
+        )
 
-    mock_service = AsyncMock()
-    # Return 'planning' so it doesn't exit early
-    mock_service_session = AsyncMock()
-    mock_service_session.status = "planning"
-    mock_service.get_session.return_value = mock_service_session
-
-    # We will simulate the generator from app.api.v1.research
-    # Since we can't easily import it due to missing deps in this test run environment,
-    # this test just represents the logic that we fixed.
-
-    async def _event_generator():
-        terminal_states = {"completed", "failed", "cancelled"}
-        q = mock_event_bus.subscribe("test_id")
-        try:
-            session = await mock_service.get_session(session_id="test_id", user_id="test_user")
-
-            yield ("status_update", session.status)
-
-            if session.status in terminal_states:
-                yield ("done", session.status)
-                return
-
-            while True:
-                try:
-                    event_type, data = await asyncio.wait_for(q.get(), timeout=1.0)
-                    yield (event_type, data)
-                    if event_type in ("done", "error"):
-                        break
-                except TimeoutError:
-                    yield ("heartbeat", {})
-        finally:
-            mock_event_bus.unsubscribe("test_id", q)
-
-    # Run the generator
-    events = [e async for e in _event_generator()]
-
-    # Verify subscribe was called BEFORE get_session
-    # (By checking the generator executes properly and gets both events)
-    assert events[0] == ("status_update", "planning")
-    assert events[1] == ("done", {"status": "completed"})
-
-    mock_event_bus.subscribe.assert_called_once()
-    mock_service.get_session.assert_called_once()
-    mock_event_bus.unsubscribe.assert_called_once()
+    lookup.reset_mock()
+    lookup.side_effect = complete_during_connect
+    raced = await asyncio.wait_for(async_client.get(f"{base}/stream", headers=headers), timeout=3)
+    assert '"status": "researching"' in raced.text
+    assert '"status": "completed"' in raced.text
